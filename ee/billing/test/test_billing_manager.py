@@ -831,14 +831,15 @@ class TestBillingManager(BaseTest):
             valid_until=datetime.datetime(2038, 1, 19, 3, 14, 7),
         )
 
-        if features_sync:
-            with patch("ee.billing.billing_manager.http_session.get") as mock_get:
-                mock_get.return_value.status_code = 200
-                mock_get.return_value.json.return_value = {"available_product_features": features}
-                BillingManager(license).update_available_product_features(organization)
-        else:
-            billing_status = {"customer": {"available_product_features": features}}
-            BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
+        with self.captureOnCommitCallbacks(execute=True):
+            if features_sync:
+                with patch("ee.billing.billing_manager.http_session.get") as mock_get:
+                    mock_get.return_value.status_code = 200
+                    mock_get.return_value.json.return_value = {"available_product_features": features}
+                    BillingManager(license).update_available_product_features(organization)
+            else:
+                billing_status = {"customer": {"available_product_features": features}}
+                BillingManager(license).update_org_details(organization, cast(BillingStatus, billing_status))
 
         self.team.refresh_from_db()
         assert self.team.event_retention_months == expected_team_months

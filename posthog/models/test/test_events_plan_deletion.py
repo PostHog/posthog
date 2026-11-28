@@ -11,6 +11,7 @@ from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import Retry
 from parameterized import parameterized
+from pytest_django import DjangoCaptureOnCommitCallbacks
 
 from posthog.models.events_plan_deletion import (
     PlanDeletionState,
@@ -220,7 +221,9 @@ def test_a_downgrade_right_after_an_upgrade_pushes_the_pass():
 
 @pytest.mark.django_db
 @override_settings(CLOUD_DEPLOYMENT="US")
-def test_a_team_that_joins_deletion_after_a_downgrade_hears_before_its_first_pass():
+def test_a_team_that_joins_deletion_after_a_downgrade_hears_before_its_first_pass(
+    django_capture_on_commit_callbacks: DjangoCaptureOnCommitCallbacks,
+):
     organization = _organization_with_admin("Late")
     team = Team.objects.create(organization=organization, name="Late", event_retention_months=84)
 
@@ -231,6 +234,7 @@ def test_a_team_that_joins_deletion_after_a_downgrade_hears_before_its_first_pas
         with (
             override_settings(EVENTS_DATA_RETENTION_ENFORCED=False),
             time_machine.travel("2026-11-20T18:00:00Z", tick=False),
+            django_capture_on_commit_callbacks(execute=True),
         ):
             Organization.objects.filter(id=organization.id).update(available_product_features=_TWO_YEAR_PLAN)
             apply_events_retention_change(organization, 84, False)
