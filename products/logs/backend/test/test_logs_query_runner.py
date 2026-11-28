@@ -668,6 +668,33 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
         self.assertEqual(response.json()["attr"], "limit")
 
+    @parameterized.expand(
+        [
+            (
+                "query_one_level_filter_group",
+                "query",
+                {
+                    "filterGroup": {
+                        "type": "AND",
+                        "values": [{"key": "service_name", "type": "log", "operator": "exact", "value": ["x"]}],
+                    }
+                },
+            ),
+            ("query_unknown_severity", "query", {"severityLevels": ["warning"]}),
+            ("count_unknown_severity", "count", {"severityLevels": ["warning"]}),
+        ]
+    )
+    def test_logs_rejects_a_query_that_fails_validation(self, _name: str, action: str, query: dict) -> None:
+        self.client.raise_request_exception = False
+        with patch("posthog.exceptions.capture_exception") as mock_capture:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/logs/{action}",
+                data={"query": {"dateRange": {"date_from": "-1h"}, **query}},
+                format="json",
+            )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        mock_capture.assert_not_called()
+
     @time_machine.travel("2025-12-16T10:33:00Z", tick=False)
     def test_logs_slicing(self):
         # should slice the query, only return 100 results first time, then get the rest
