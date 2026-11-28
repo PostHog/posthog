@@ -149,6 +149,11 @@ return {ttl}
 # key was already gone (TTL expiry), the old value when it was an S3 pointer (ARGV[1] is the
 # pointer magic), and 1 otherwise, again keeping inline blobs off the wire.
 DELETE_ENTRY_RETURNING_OLD_POINTER_SCRIPT = """
+-- A tracked hash, such as a dashboard bucket store, holds no pointer: GET on it would fail the whole eviction.
+if redis.call('TYPE', KEYS[1]).ok == 'hash' then
+    redis.call('DEL', KEYS[1])
+    return 1
+end
 local old = redis.call('GET', KEYS[1])
 if not old then
     return nil

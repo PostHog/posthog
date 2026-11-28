@@ -81,6 +81,14 @@ class QueryBatchTargetSerializer(serializers.Serializer):
             "'classic', the default, runs as `/query` does."
         ),
     )
+    bucketed = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "HogQL only. The query returns its time bucket as the first column, filters time with `{filters}` and "
+            "aggregates only within a bucket, so finished buckets are kept and only missing and recent ones run."
+        ),
+    )
 
 
 class QueryBatchTimeSerializer(serializers.Serializer):
@@ -238,6 +246,7 @@ class DashboardV2ViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     legend=item["target"].get("legend"),
                     format=QueryBatchTargetFormat(item["target"]["format"]) if "format" in item["target"] else None,
                     engine=QueryBatchEngine(item["target"]["engine"]) if "engine" in item["target"] else None,
+                    bucketed=item["target"]["bucketed"],
                 ),
                 date_from=item["time"]["from"],
                 date_to=item["time"]["to"],
