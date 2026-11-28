@@ -215,9 +215,11 @@ impl RouterClient {
         .await
     }
 
-    /// Person read. Strong reads route to the owning leader and therefore
-    /// carry the routing headers plus the strong-consistency opt-in;
-    /// eventual reads go to the replica with no headers.
+    /// Person read. Every read carries the routing headers, which name the
+    /// person's partition to the router. A strong read adds the
+    /// strong-consistency opt-in and goes to the owning leader; an eventual
+    /// read goes to a changelog follower of the partition where the router
+    /// has one that can answer, and is read from Postgres otherwise.
     pub async fn get_person(
         &self,
         team_id: i64,
@@ -333,8 +335,8 @@ impl RouterClient {
                 ..Default::default()
             }),
         });
+        stamp_person_routing_headers(&mut request, team_id, person_id);
         if consistency == ConsistencyLevel::Strong {
-            stamp_person_routing_headers(&mut request, team_id, person_id);
             request.metadata_mut().insert(
                 READ_CONSISTENCY_HEADER,
                 tonic::metadata::MetadataValue::from_static("strong"),
@@ -418,10 +420,8 @@ mod tests {
         assert!(metadata.get(READ_CONSISTENCY_HEADER).is_none());
     }
 
-    /// The eventual-read branch carries no routing headers, so it is the
-    /// branch most likely to lose the client name in a request-building
-    /// refactor; an unnamed client must stay anonymous so the server label
-    /// falls back to `unknown` rather than an empty string.
+    /// An unnamed client must stay anonymous so the server label falls back
+    /// to `unknown` rather than an empty string.
     #[tokio::test]
     async fn client_name_is_stamped_only_when_configured() {
         let anonymous = client().build_update_request(UpdatePersonPropertiesRequest::default());
@@ -437,25 +437,25 @@ mod tests {
     }
 
     #[rstest]
-    #[case::strong(ConsistencyLevel::Strong, true)]
-    #[case::eventual(ConsistencyLevel::Eventual, false)]
-    #[case::unspecified(ConsistencyLevel::Unspecified, false)]
+    #[case::strong(ConsistencyLevel::Strong, Some("strong"))]
+    #[case::eventual(ConsistencyLevel::Eventual, None)]
+    #[case::unspecified(ConsistencyLevel::Unspecified, None)]
     #[tokio::test]
-    async fn get_person_request_headers_follow_the_routing_branch(
+    async fn every_person_read_names_the_person_and_only_a_strong_one_asks_for_the_leader(
         #[case] consistency: ConsistencyLevel,
-        #[case] leader_bound: bool,
+        #[case] opt_in: Option<&str>,
     ) {
         let request = client().build_get_person_request(7, 42, consistency);
         let metadata = request.metadata();
-        if leader_bound {
-            assert_eq!(metadata.get(TEAM_ID_HEADER).unwrap(), "7");
-            assert_eq!(metadata.get(PERSON_ID_HEADER).unwrap(), "42");
-            assert_eq!(metadata.get(READ_CONSISTENCY_HEADER).unwrap(), "strong");
-        } else {
-            assert!(metadata.get(TEAM_ID_HEADER).is_none());
-            assert!(metadata.get(PERSON_ID_HEADER).is_none());
-            assert!(metadata.get(READ_CONSISTENCY_HEADER).is_none());
-        }
+
+        assert_eq!(metadata.get(TEAM_ID_HEADER).unwrap(), "7");
+        assert_eq!(metadata.get(PERSON_ID_HEADER).unwrap(), "42");
+        assert_eq!(
+            metadata
+                .get(READ_CONSISTENCY_HEADER)
+                .map(|value| value.to_str().unwrap()),
+            opt_in
+        );
     }
 
     /// Answers the scripted statuses in order, then succeeds; counts calls.

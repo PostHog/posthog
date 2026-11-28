@@ -82,6 +82,7 @@ pub async fn run(args: StackArgs) -> Result<()> {
         bin_dir,
         leaders: args.leaders,
         routers: args.routers,
+        followers: 0,
         partitions: args.partitions,
         kafka_hosts: args.kafka_hosts.clone(),
         secondary_kafka_hosts: None,

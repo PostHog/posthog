@@ -328,6 +328,72 @@ pub async fn verify_strong(
     Ok(all_violations)
 }
 
+/// How long a followed read may be behind before it counts as a failure: a follower that
+/// just took a partition is still catching up, and Postgres answers for it meanwhile.
+const FOLLOWED_READ_DEADLINE: Duration = Duration::from_secs(20);
+
+/// Every acked write must be visible through a followed read once traffic has stopped.
+/// While the writer has not applied the newest writes, only a follower can show them.
+pub async fn verify_followed(
+    client: &HarnessClient,
+    state: &PersonState,
+    team_id: i64,
+) -> Result<Vec<ConsistencyViolation>> {
+    // One deadline for the whole pass: a follower may answer from up to its staleness
+    // threshold ago, and Postgres answers while it recovers. Neither is a violation until
+    // it lasts.
+    let deadline = Instant::now() + FOLLOWED_READ_DEADLINE;
+    let mut all_violations = Vec::new();
+    for person_id in state.person_ids().await {
+        loop {
+            let mut violations = followed_violations(client, state, team_id, person_id).await?;
+            if violations.is_empty() {
+                break;
+            }
+            if Instant::now() >= deadline {
+                all_violations.append(&mut violations);
+                break;
+            }
+            sleep(Duration::from_millis(200)).await;
+        }
+    }
+    Ok(all_violations)
+}
+
+/// What one followed read of the person shows against their journal.
+async fn followed_violations(
+    client: &HarnessClient,
+    state: &PersonState,
+    team_id: i64,
+    person_id: i64,
+) -> Result<Vec<ConsistencyViolation>> {
+    let read = client
+        .get_person(team_id, person_id, ConsistencyLevel::Eventual)
+        .await;
+    Ok(match read {
+        Ok(Some(person)) => {
+            let props: Value = if person.properties.is_empty() {
+                json!({})
+            } else {
+                serde_json::from_slice(&person.properties)?
+            };
+            state.verify(person_id, &props, person.version).await
+        }
+        Ok(None) => vec![ConsistencyViolation {
+            person_id,
+            key: "__missing_from_followed_read".to_string(),
+            expected: json!("person with acked writes exists"),
+            actual: Value::Null,
+        }],
+        Err(e) => vec![ConsistencyViolation {
+            person_id,
+            key: "__followed_read_failed".to_string(),
+            expected: json!("readable"),
+            actual: json!(format!("{e:#}")),
+        }],
+    })
+}
+
 async fn strong_read_with_retry(
     client: &HarnessClient,
     team_id: i64,
