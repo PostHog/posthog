@@ -179,6 +179,7 @@ class ResourceType(StrEnum):
     SUPPORT_TICKET = "support_ticket"
     TODAY = "today"
     TRANSACTIONAL_EMAIL = "transactional_email"
+    TRANSACTIONAL_PUSH = "transactional_push"
     UPLOADED_MEDIA = "uploaded_media"
     USER = "user"
     VISION_ACTION = "vision_action"

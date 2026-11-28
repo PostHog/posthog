@@ -66,6 +66,8 @@ LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
     "messaging_preference": "hog_flow",
     # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.
     "transactional_email": "hog_flow",
+    # Permanent: `hog_flow` stays a supported way to send transactional push notifications.
+    "transactional_push": "hog_flow",
 }
 
 
