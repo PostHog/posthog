@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import uuid
+import builtins
 import functools
 from collections import defaultdict
 from collections.abc import Sequence
@@ -967,7 +968,8 @@ class EventDefinitionViewSet(
             return existing
         return new_enterprise_event
 
-    def get_throttles(self) -> list[BaseThrottle]:
+    # `builtins.list` because this class's own `list` action shadows the builtin in annotations
+    def get_throttles(self) -> builtins.list[BaseThrottle]:
         throttles = super().get_throttles()
         if self.action == "bulk_update_hidden":
             return [BulkHideBurstRateThrottle(), BulkHideSustainedRateThrottle(), *throttles]
