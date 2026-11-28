@@ -740,6 +740,41 @@ describe('CdpHogflowSubscriptionMatcherConsumer', () => {
             expect(newState.state.conversionMatched).toBeUndefined()
         })
 
+        it.each([
+            ['only the event that started the run', ['event-uuid'], undefined],
+            ['the event that started the run, then a later one', ['event-uuid', 'later-uuid'], 'later-uuid'],
+            [
+                'the event that started the run twice, then a later one',
+                ['event-uuid', 'event-uuid', 'later-uuid'],
+                'later-uuid',
+            ],
+        ])('a batch with %s wakes the job on the first event that did not start the run', async (_, uuids, wokenBy) => {
+            matcher.findRows = [
+                {
+                    id: 'job-1',
+                    team_id: 1,
+                    function_id: 'flow-1',
+                    action_id: 'wait_node',
+                    distinct_id: 'user-1',
+                    person_id: null,
+                },
+            ]
+            matcher.wakeRows = [
+                {
+                    ...matcher.findRows[0],
+                    state: stateBuffer({ event: { uuid: 'event-uuid' }, currentAction: { id: 'wait_node' } }),
+                },
+            ]
+            matcher.updateRowCount = 1
+            matcher.setHogFlows({ 'flow-1': makeHogFlow({ id: 'flow-1' }) })
+
+            await matcher.runWake(uuids.map((uuid) => makeGlobals({ event: { ...makeGlobals({}).event, uuid } })))
+
+            const update = matcher.calls.find((c) => c.sql.startsWith('UPDATE cyclotron_jobs'))
+            const woken = update && (parseJSON(update.params[1][0].toString('utf-8')) as any)
+            expect(woken?.state.currentAction.eventMatchedEventUuid).toBe(wokenBy)
+        })
+
         it('logs the hogflow id alongside the action id when wait-step bytecode evaluation throws', async () => {
             const errorSpy = jest.spyOn(logger, 'error').mockReturnValue(undefined as any)
             const execSpy = jest.spyOn(hogExec, 'execHog').mockRejectedValue(new Error('boom'))
