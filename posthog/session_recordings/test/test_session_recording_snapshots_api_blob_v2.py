@@ -1,8 +1,12 @@
+import asyncio
+from datetime import timedelta
+
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -11,10 +15,12 @@ from posthog.auth import mint_export_renderer_token
 from posthog.clickhouse.client import sync_execute
 from posthog.jwt import PosthogJwtAudience, decode_jwt
 from posthog.models import PersonalAPIKey, SessionRecording, SharingConfiguration
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.recordings.errors import RecordingDeletedError
+from posthog.session_recordings.session_recording_api import SNAPSHOT_BLOCK_FETCH_CONCURRENCY
 from posthog.session_recordings.session_recording_v2_service import RecordingBlock, listing_cache_key
 
 from products.exports.backend.models.exported_asset import ExportedAsset
@@ -147,6 +153,58 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert call_args_list[0].kwargs.get("decompress") is True
         assert call_args_list[1].args == ("key1", 101, 200, session_id, self.team.id)
         assert call_args_list[1].kwargs.get("decompress") is True
+
+    @patch(
+        "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
+        return_value=True,
+    )
+    @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
+    @patch("posthog.session_recordings.session_recording_api.list_blocks_async", new_callable=AsyncMock)
+    @patch("posthog.session_recordings.session_recording_api.recording_api_client")
+    def test_blob_v2_bounds_concurrent_block_fetches(
+        self,
+        mock_recording_api_client,
+        mock_list_blocks,
+        mock_get_session_recording,
+        _mock_exists,
+    ) -> None:
+        session_id = str(uuid7())
+        mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
+        block_count = SNAPSHOT_BLOCK_FETCH_CONCURRENCY * 3
+        mock_list_blocks.return_value = [
+            RecordingBlock(
+                key=f"key{i}",
+                start_byte=0,
+                end_byte=100,
+                start_timestamp="2024-01-01T00:00:00Z",
+                end_timestamp="2024-01-01T00:01:00Z",
+            )
+            for i in range(block_count)
+        ]
+
+        in_flight = 0
+        peak = 0
+
+        async def fetch_block(key, *_args, **_kwargs):
+            nonlocal in_flight, peak
+            in_flight += 1
+            peak = max(peak, in_flight)
+            await asyncio.sleep(0)
+            in_flight -= 1
+            return f"{key};".encode()
+
+        mock_storage = MagicMock()
+        mock_storage.fetch_block = fetch_block
+        mock_recording_api_client.return_value.__aenter__.return_value = mock_storage
+
+        response = self.client.get(
+            f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/"
+            f"?source=blob_v2&start_blob_key=0&end_blob_key={block_count - 1}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        assert peak == SNAPSHOT_BLOCK_FETCH_CONCURRENCY
+        assert response.content.decode() == "".join(f"key{i};" for i in range(block_count))
 
     @parameterized.expand(
         [
@@ -347,13 +405,22 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "Cannot request more than 100 blob keys" in response.json()["detail"]
 
+    @parameterized.expand(
+        [
+            ("personal_api_key", 20),
+            ("third_party_oauth", 20),
+            ("first_party_oauth", 100),
+        ]
+    )
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",
         return_value=True,
     )
     @patch("posthog.session_recordings.session_recording_api.SessionRecording.get_or_build")
-    def test_blob_v2_personal_api_key_cannot_request_more_than_20_blob_keys(
+    def test_blob_v2_blob_key_limit_by_auth(
         self,
+        auth: str,
+        expected_limit: int,
         mock_get_session_recording,
         _mock_exists,
     ) -> None:
@@ -361,21 +428,41 @@ class TestSessionRecordingSnapshotsAPI(APIBaseTest, ClickhouseTestMixin, QueryMa
 
         mock_get_session_recording.return_value = SessionRecording(session_id=session_id, team=self.team, deleted=False)
 
-        personal_api_key = generate_random_token_personal()
-        PersonalAPIKey.objects.create(
-            label="Test Key",
-            user=self.user,
-            last_used_at="2021-08-25T21:09:14",
-            secure_value=hash_key_value(personal_api_key),
-            scopes=["session_recording:read"],
-            scoped_teams=[self.team.pk],
-        )
+        if auth == "personal_api_key":
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="Test Key",
+                user=self.user,
+                last_used_at="2021-08-25T21:09:14",
+                secure_value=hash_key_value(token),
+                scopes=["session_recording:read"],
+                scoped_teams=[self.team.pk],
+            )
+        else:
+            application = OAuthApplication.objects.create(
+                name="Test App",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                algorithm="RS256",
+                organization=self.organization,
+                user=self.user,
+                is_first_party=auth == "first_party_oauth",
+            )
+            token = "pha_test_snapshot_limit_token"
+            OAuthAccessToken.objects.create(
+                user=self.user,
+                application=application,
+                token=token,
+                expires=timezone.now() + timedelta(hours=1),
+                scope="session_recording:read",
+            )
 
-        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=33"
+        url = f"/api/projects/{self.team.pk}/session_recordings/{session_id}/snapshots/?source=blob_v2&start_blob_key=12&end_blob_key=113"
 
-        response = self.client.get(url, headers={"authorization": f"Bearer {personal_api_key}"})
+        response = self.client.get(url, headers={"authorization": f"Bearer {token}"})
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
-        assert "Cannot request more than 20 blob keys at once" in response.json()["detail"]
+        assert f"Cannot request more than {expected_limit} blob keys at once" in response.json()["detail"]
 
     @patch(
         "posthog.session_recordings.queries.session_replay_events.SessionReplayEvents.exists",

@@ -372,6 +372,111 @@ describe('RecordingApi', () => {
                 expect(res.body).toEqual({ error: 'Failed to fetch block from S3' })
             })
         })
+
+        describe('bytes in flight', () => {
+            const fetchBlock = (
+                target: express.Application,
+                endByte: number,
+                decompress = false
+            ): Promise<supertest.Response> =>
+                supertest(target)
+                    .get('/api/projects/1/recordings/session-123/block')
+                    .query({
+                        key: validKey,
+                        start_byte: '0',
+                        end_byte: String(endByte),
+                        decompress: String(decompress),
+                    })
+
+            const buildBudgetedApp = async (): Promise<{ target: express.Application; close: () => void }> => {
+                const recordingApi = new RecordingApi(
+                    { RECORDING_API_INTERNAL_BLOCK_BYTES_IN_FLIGHT: 100 } as RecordingApiConfig,
+                    mockPostgres,
+                    mockOutputs
+                )
+                await recordingApi.start(mockService)
+                const target = express()
+                target.use('/', recordingApi.router())
+                const budgetedServer = target.listen(0, () => {})
+                return { target, close: () => budgetedServer.close() }
+            }
+
+            it.each([
+                ['a stored block over the remaining budget', 59, false],
+                ['a decompressed block charged at its estimated size', 9, true],
+            ])('refuses %s while another read is held, then serves it', async (_, endByte, decompress) => {
+                const { target, close } = await buildBudgetedApp()
+                let releaseFirst!: () => void
+                let firstStarted!: () => void
+                const firstReading = new Promise<void>((resolve) => (firstStarted = resolve))
+                mockService.getBlock.mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            releaseFirst = () => resolve({ ok: true, data: Buffer.from('first') })
+                            firstStarted()
+                        })
+                )
+                mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('second') })
+
+                try {
+                    const first = fetchBlock(target, 59).then((r) => r)
+                    await firstReading
+
+                    const refused = await fetchBlock(target, endByte, decompress)
+                    expect(refused.status).toBe(503)
+                    expect(refused.headers['retry-after']).toBe('1')
+
+                    releaseFirst()
+                    expect((await first).status).toBe(200)
+                    expect((await fetchBlock(target, endByte, decompress)).status).toBe(200)
+                } finally {
+                    close()
+                }
+            })
+
+            it('serves a block larger than the whole budget when nothing else is held', async () => {
+                const { target, close } = await buildBudgetedApp()
+                mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('big') })
+
+                try {
+                    expect((await fetchBlock(target, 499)).status).toBe(200)
+                } finally {
+                    close()
+                }
+            })
+
+            it.each([
+                ['not found', () => mockService.getBlock.mockResolvedValueOnce({ ok: false, error: 'not_found' }), 404],
+                ['a failed read', () => mockService.getBlock.mockRejectedValueOnce(new Error('S3 error')), 500],
+            ])('releases the budget after %s', async (_, failOnce, expectedStatus) => {
+                const { target, close } = await buildBudgetedApp()
+                failOnce()
+                let releaseHeld!: () => void
+                let heldStarted!: () => void
+                const heldReading = new Promise<void>((resolve) => (heldStarted = resolve))
+                mockService.getBlock.mockImplementationOnce(
+                    () =>
+                        new Promise((resolve) => {
+                            releaseHeld = () => resolve({ ok: true, data: Buffer.from('held') })
+                            heldStarted()
+                        })
+                )
+
+                try {
+                    expect((await fetchBlock(target, 59)).status).toBe(expectedStatus)
+                    const held = fetchBlock(target, 59).then((r) => r)
+                    await heldReading
+                    mockService.getBlock.mockResolvedValue({ ok: true, data: Buffer.from('next') })
+
+                    expect((await fetchBlock(target, 39)).status).toBe(200)
+                    releaseHeld()
+                    await held
+                } finally {
+                    releaseHeld?.()
+                    close()
+                }
+            })
+        })
     })
 
     describe('listBlocks endpoint', () => {
