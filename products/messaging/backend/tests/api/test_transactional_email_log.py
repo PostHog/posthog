@@ -77,6 +77,7 @@ LONG_ID_SENDS = 20
 CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
 SENDS_PAST_ONE_QUERY = 120
+EXPIRED_MINUTES_AGO = 31 * 24 * 60
 
 
 def _action_of(name: str) -> str:
@@ -306,7 +307,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
     )
     def test_a_full_query_slot_answers_429(self, _flag, _name, path):
         with patch(
-            "products.messaging.backend.presentation.query_concurrency.app_org_concurrency_slot",
+            "products.messaging.backend.services.query_concurrency.app_org_concurrency_slot",
             side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
         ):
             response = self.client.get(self._url(path.format(workflow_id=self.workflow_id)))
@@ -370,9 +371,14 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "sent three hours ago": (180, three_hours_ago, None),
             "workflow email of that run": (180, three_hours_ago, None),
             "of a denied workflow": (20, self._send(20, "jane@example.com", sent, workflow_id=restricted), restricted),
-            "gone from the log": (
-                2 * 24 * 60,
-                str(UUIDT(unix_time_ms=int((NOW - timedelta(days=2)).timestamp() * 1000))),
+            "past the log's 30 days, still stored": (
+                EXPIRED_MINUTES_AGO,
+                self._send(EXPIRED_MINUTES_AGO, "jane@example.com", sent),
+                None,
+            ),
+            "keyed, past the log's 30 days, still stored": (
+                EXPIRED_MINUTES_AGO,
+                self._send(EXPIRED_MINUTES_AGO, "jane@example.com", sent, keyed=True),
                 None,
             ),
             "workflow email": (
@@ -385,7 +391,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         self._deny_member("hog_flow", resource_id=restricted)
 
         with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
-            response = self.client.get(url)
+            response = self.client.get(f"{url}?after=-60d")
             details = {
                 name: self.client.get(self._url(f"{message_id}/")).status_code
                 for name, (_, message_id, _) in sends.items()
@@ -403,7 +409,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             "sent three hours ago": True,
             "workflow email of that run": None,
             "of a denied workflow": False,
-            "gone from the log": False,
+            "past the log's 30 days, still stored": False,
+            "keyed, past the log's 30 days, still stored": False,
             "workflow email": None,
         }
         assert details == {
@@ -470,6 +477,19 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         with patch(
             "products.authorization.backend.facade.api.list_objects", side_effect=DatabaseError("lookup failed")
+        ):
+            response = self.client.get(url)
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["in_transactional_email_log"] for row in response.json()] == [None]
+
+    def test_a_persons_emails_load_without_the_field_while_the_logs_query_slots_are_full(self, _flag):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        url = self._record_person_emails({"a send": (10, message_id, self.workflow_id)})
+
+        with patch(
+            "products.messaging.backend.services.query_concurrency.app_org_concurrency_slot",
+            side_effect=ConcurrencyLimitExceeded("Exceeded maximum concurrency limit"),
         ):
             response = self.client.get(url)
 

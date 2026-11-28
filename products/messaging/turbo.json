@@ -15,7 +15,8 @@
                 "backend/apps.py",
                 "backend/admin.py",
                 "backend/services/transactional_email.py",
-                "backend/services/transactional_email_log.py"
+                "backend/services/transactional_email_log.py",
+                "backend/services/query_concurrency.py"
             ],
             "outputs": [],
             "cache": true

@@ -1,6 +1,7 @@
 """The transactional email log: every send of a project, its timeline, and its delivery stats."""
 
 from products.messaging.backend.models.email_status_sql import EMAIL_STATUS_RETENTION_DAYS
+from products.messaging.backend.services.query_concurrency import hold_query_slots
 from products.messaging.backend.services.transactional_email_activity import (
     ACTIVITY_WINDOW_DAYS,
     MAX_CLICKS,
@@ -27,6 +28,7 @@ __all__ = [
     "TRANSACTIONAL_EMAIL_API_FLAG",
     "get_transactional_email",
     "get_transactional_email_activity",
+    "hold_query_slots",
     "list_transactional_emails",
     "transactional_email_impact",
     "transactional_email_log_enabled",

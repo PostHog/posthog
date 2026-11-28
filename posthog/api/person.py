@@ -46,6 +46,7 @@ from posthog.api.property_value_metrics import PROPERTY_VALUES_DURATION
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action, paging_params, parse_actor_property_filters
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Feature, tag_queries
 from posthog.errors import ExposedCHQueryError, QueryErrorCategory, classify_query_error
 from posthog.event_usage import get_request_analytics_properties
@@ -106,6 +107,7 @@ from products.authorization.backend.facade.enums import Action, ResourceType
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.util import get_all_cohort_ids_by_person_uuid
 from products.messaging.backend.facade.transactional_email_log import (
+    hold_query_slots,
     transactional_email_log_enabled,
     transactional_emails_in_log,
 )
@@ -1930,11 +1932,15 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             access = get_workflow_view_access(
                 team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=set(sends.values())
             )
-            kept = transactional_emails_in_log(
-                self.team_id,
-                [(uuid.UUID(message_id), workflow_id) for message_id, workflow_id in sends.items()],
-                access=access,
-            )
+            with hold_query_slots(self.team):
+                kept = transactional_emails_in_log(
+                    self.team_id,
+                    [(uuid.UUID(message_id), workflow_id) for message_id, workflow_id in sends.items()],
+                    access=access,
+                )
+        except ConcurrencyLimitExceeded:
+            # The log answers 429 while its slots are full, so the rows leave the field unset rather than report it.
+            return rows
         except Exception as error:
             capture_exception(error)
             return rows
