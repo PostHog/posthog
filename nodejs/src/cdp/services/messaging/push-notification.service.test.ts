@@ -910,6 +910,25 @@ describe('PushNotificationService', () => {
             expect(sentTokens()).toEqual(['run-person-token'])
         })
 
+        it.each(['$transactional_email', '$transactional_push'])(
+            'reaches no device of a named person from a %s run',
+            async (eventName) => {
+                personsManager.getCyclotronPerson.mockResolvedValue(
+                    namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') })
+                )
+                mockTrackedFetch.mockResolvedValue(ok())
+                const invocation = invocationNaming('named-user')
+                invocation.state.globals.event.event = eventName
+
+                const result = await service.executeSendPushNotification(invocation)
+
+                expect(sentTokens()).toEqual([])
+                expect(result.metrics).toContainEqual(
+                    expect.objectContaining({ metric_name: 'push_skipped', count: 1 })
+                )
+            }
+        )
+
         it('skips with a warning naming the input when it matches no person', async () => {
             // Falling back to the run person here would notify someone the step did not name.
             const result = await service.executeSendPushNotification(invocationNaming('nobody'))
@@ -965,6 +984,102 @@ describe('PushNotificationService', () => {
 
             invocation.queueMetadata = { tries: 3 } // == maxRetries
             await expect(service.executeSendPushNotification(invocation)).rejects.toThrow('personhog unavailable')
+        })
+
+        describe('transactional push sent before the recipient registered a device', () => {
+            const transactionalSend = (distinctId = 'test-distinct-id'): CyclotronJobInvocationHogFunction => {
+                const invocation = invocationNaming(distinctId)
+                invocation.state.globals.person!.properties = {}
+                invocation.state.globals.event.event = '$transactional_push'
+                return invocation
+            }
+
+            it('waits for the device token and delivers once it is registered', async () => {
+                const invocation = transactionalSend()
+                const before = Date.now()
+
+                const first = await service.executeSendPushNotification(invocation)
+
+                expect(first.finished).toBe(false)
+                expect(first.invocation.queueParameters).toEqual(invocation.queueParameters)
+                expect(first.invocation.queueMetadata).toEqual({ recipientWaits: 1 })
+                expect(first.invocation.queueScheduledAt!.toMillis() - before).toBeGreaterThanOrEqual(10_000)
+                expect(first.metrics).toEqual([])
+                expect(first.logs.map((log) => log.message)).toEqual([
+                    'No device registered for distinct_id test-distinct-id yet; retrying in 10s (attempt 1/5).',
+                ])
+
+                personsManager.getCyclotronPerson.mockResolvedValue({
+                    ...namedPerson({ [namedPersonKey]: encryptedFields.encrypt('named-person-token') }),
+                    distinct_id: 'test-distinct-id',
+                })
+                mockTrackedFetch.mockResolvedValue(ok())
+
+                const second = await service.executeSendPushNotification(first.invocation)
+
+                expect(personsManager.getCyclotronPerson).toHaveBeenCalledWith(1, 'test-distinct-id', 'distinct_id', {
+                    forceFresh: true,
+                })
+                expect(sentTokens()).toEqual(['named-person-token'])
+                expect(second.finished).toBe(true)
+                expect(second.metrics).toEqual([expect.objectContaining({ metric_name: 'push_sent', count: 1 })])
+            })
+
+            it('waits for a person that does not exist yet when the run has no person', async () => {
+                const distinctId = 'test-distinct-id'
+                const invocation = transactionalSend(distinctId)
+                invocation.state.globals.person = undefined
+
+                const result = await service.executeSendPushNotification(invocation)
+
+                expect(result.finished).toBe(false)
+                expect(result.logs.map((log) => log.message)).toEqual([
+                    `No person found for distinct_id ${distinctId} yet; retrying in 10s (attempt 1/5).`,
+                ])
+            })
+
+            it.each([
+                [
+                    'the wait is over',
+                    (invocation: CyclotronJobInvocationHogFunction) =>
+                        (invocation.queueMetadata = { recipientWaits: 5 }),
+                    false,
+                ],
+                [
+                    'the run was not started by the API',
+                    (invocation: CyclotronJobInvocationHogFunction) =>
+                        (invocation.state.globals.event.event = '$pageview'),
+                    false,
+                ],
+                ['it is a test send', () => {}, true],
+            ])('skips without waiting when %s', async (_, adjust, isTest) => {
+                const invocation = transactionalSend()
+                adjust(invocation)
+
+                const result = await service.executeSendPushNotification(invocation, isTest)
+
+                expect(result.finished).toBe(true)
+                expect(result.invocation.queueScheduledAt).toBeUndefined()
+                expect(result.logs.map((log) => log.level)).toContain('warn')
+                expect(result.metrics).toEqual(
+                    isTest ? [] : [expect.objectContaining({ metric_name: 'push_skipped', count: 1 })]
+                )
+            })
+
+            it('skips without waiting when the provider says the only token is dead', async () => {
+                mockTrackedFetch.mockResolvedValue(unregistered())
+                const invocation = transactionalSend()
+                invocation.state.globals.person!.properties = {
+                    [runPersonKey]: encryptedFields.encrypt('run-person-token'),
+                }
+
+                const result = await service.executeSendPushNotification(invocation)
+
+                expect(result.finished).toBe(true)
+                expect(result.metrics).toContainEqual(
+                    expect.objectContaining({ metric_name: 'push_skipped', count: 1 })
+                )
+            })
         })
     })
 

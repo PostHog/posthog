@@ -5,6 +5,7 @@ import { logger } from '~/common/utils/logger'
 
 import {
     CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
+    CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
     CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
     CdpIntakeRunOutput,
 } from '../outputs/outputs'
@@ -26,6 +27,7 @@ export const INTAKE_ACK_DEADLINE_MS = 3_000
 const OUTPUT_OF: Record<RunKind, IntakeOutput> = {
     'transactional-email': CDP_INTAKE_MSK_TRANSACTIONAL_EMAIL_OUTPUT,
     'workflow-webhook': CDP_INTAKE_MSK_WORKFLOW_WEBHOOK_OUTPUT,
+    'transactional-push': CDP_INTAKE_MSK_TRANSACTIONAL_PUSH_OUTPUT,
 }
 
 // Alerts and dashboards filter the metrics below on this label. Without MSK brokers the MSK producer opens WarpStream's

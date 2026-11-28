@@ -3,6 +3,7 @@ import {
     KAFKA_CDP_EVENTS_DLQ,
     KAFKA_CDP_INTAKE_DLQ,
     KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
+    KAFKA_CDP_INTAKE_TRANSACTIONAL_PUSH,
     KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
     KAFKA_CDP_SES_WEBHOOKS,
     KAFKA_EMAIL_STATUS,
@@ -231,6 +232,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_SES_WEBHOOKS_PRODUCER: CdpProducerName
     CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: string
     CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: string
+    CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC: string
     CDP_INTAKE_DLQ_TOPIC: string
     CDP_INTAKE_DLQ_DRAIN: boolean
     // An intake consumer's dead letters, on the cluster it reads from.
@@ -346,6 +348,8 @@ export type CdpConfig = ClickhouseConfig & {
     // Scoped JWT keys verifying Django's transactional email sends. Its own key: only Django
     // mints it. Same comma-separated rotation and fail-closed-when-empty semantics.
     WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET: string
+    // Scoped JWT keys verifying Django's transactional push sends. Never the email key, so that key can't send a push.
+    WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET: string
     // Scoped JWT keys signing the workflow engine's task-create calls to Django, with the same
     // comma-separated rotation and fail-closed-when-empty semantics as the secret above.
     TASKS_CREATE_JWT_SECRET: string
@@ -548,6 +552,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_SES_WEBHOOKS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
         CDP_INTAKE_TRANSACTIONAL_EMAIL_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_EMAIL,
         CDP_INTAKE_WORKFLOW_WEBHOOK_TOPIC: KAFKA_CDP_INTAKE_WORKFLOW_WEBHOOK,
+        CDP_INTAKE_TRANSACTIONAL_PUSH_TOPIC: KAFKA_CDP_INTAKE_TRANSACTIONAL_PUSH,
         CDP_INTAKE_DLQ_TOPIC: KAFKA_CDP_INTAKE_DLQ,
         CDP_INTAKE_DLQ_DRAIN: false,
         CDP_INTAKE_DLQ_PRODUCER: MSK_CDP_INTAKE_PRODUCER,
@@ -641,6 +646,9 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET:
             isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-email-jwt' : '',
+        // Dev/test default must match Django's (posthog/settings/data_stores.py).
+        WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET:
+            isTestEnv() || isDevEnv() ? 'local-dev-workflows-transactional-push-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).
         TASKS_CREATE_JWT_SECRET: isTestEnv() || isDevEnv() ? 'local-dev-tasks-create-jwt' : '',
         // Dev/test default must match Django's (posthog/settings/data_stores.py).

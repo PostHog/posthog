@@ -33,7 +33,7 @@ import {
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
 import { IntakeProducer, intakeClusterOf } from './intake/intake-producer'
-import { RunIntake } from './intake/run-intake'
+import { Run, RunIntake, keyedRunId } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { HogFlow, HogFlowAction } from './schema/hogflow'
@@ -53,7 +53,7 @@ import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogf
 import { HogFlowFunctionsService } from './services/hogflows/hogflow-functions.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { hogFlowPersonLookup, loadHogFlowPerson } from './services/hogflows/hogflow-person'
-import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from './services/hogflows/hogflow-quota-limiting'
+import { HOG_FLOW_QUOTA_LIMITED_MESSAGE, checkHogFlowQuotaLimits } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
 import {
     SCHEDULED_RUNS_PER_BATCH,
@@ -90,6 +90,19 @@ import {
     slotRequestOf,
     transactionalEmailBatchRequestsTotal,
 } from './services/hogflows/transactional-email-batch'
+import {
+    TRANSACTIONAL_PUSH_EVENT,
+    TRANSACTIONAL_PUSH_RUN_SCOPE,
+    TransactionalPushOutcome,
+    TransactionalPushRequestSchema,
+    expiresBeforeItsUseRecord,
+    isTokenForPerson,
+    sendsOnePushToRequestPerson,
+    sendsOnlyPush,
+    transactionalPushFingerprints,
+    transactionalPushRequestsTotal,
+    useTransactionalPushToken,
+} from './services/hogflows/transactional-push'
 import {
     KeyedTransactionalEmailRequest,
     ScheduledTransactionalSends,
@@ -416,6 +429,8 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
+    private transactionalPushJwt: ScopedServiceJwt
+    private redis: RedisV2
     private transactionalEmailBatchCapacity: BatchCapacity
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
@@ -451,6 +466,7 @@ export class CdpApi {
         this.emailStatusService = services.emailStatusService
         this.outputs = services.outputs
         this.personsManager = services.personsManager
+        this.redis = services.redis
 
         // API-only services. The hog-transformer's monitoring service reuses the same
         // resolved outputs registry as the core CDP services — no separate construction.
@@ -517,6 +533,10 @@ export class CdpApi {
         this.manageTransactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
+        )
+        this.transactionalPushJwt = new ScopedServiceJwt(
+            PosthogJwtAudience.WORKFLOWS_SEND_TRANSACTIONAL_PUSH,
+            config.WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET || ''
         )
         this.transactionalEmailBatchCapacity = new BatchCapacity(config.CDP_TRANSACTIONAL_EMAIL_BATCH_MAX_REQUESTS)
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.emailAttachmentsValkey ?? null, {
@@ -629,6 +649,7 @@ export class CdpApi {
             '/api/projects/:team_id/hog_flows/:id/transactional_email/send',
             asyncHandler(this.postTransactionalEmail(AcceptedSendRequestSchema, CODE_SEND_TOKEN_CLAIMS))
         )
+        router.post('/api/projects/:team_id/hog_flows/:id/transactional_push', asyncHandler(this.postTransactionalPush))
         router.post(
             '/api/projects/:team_id/hog_flows/:id/transactional_email/batch',
             asyncHandler(this.postTransactionalEmailBatch(TemplateBatchRequestSchema, TEMPLATE_BATCH_TOKEN_CLAIMS))
@@ -1508,7 +1529,7 @@ export class CdpApi {
     // touch another team or flow. Routes scoped tighter than a workflow (batch cancel) pass the
     // narrower claims via extraClaims and every one must match too; a route without a workflow
     // in its path (step resume) pins the job through extraClaims instead. Writes the 401 itself
-    // and returns false on any mismatch.
+    // and returns no claims on any mismatch.
     // Run a transactional email's workflow once. Django checks the template and the workflow, then calls this
     // once per send. The job goes straight onto the email queue's fast lane.
     //
@@ -1589,7 +1610,7 @@ export class CdpApi {
                 if (!hogFlow || hogFlow.team_id !== team.id) {
                     return reply('not_found', 404, { error: 'Workflow not found' })
                 }
-                if (hogFlow.trigger?.type !== 'api') {
+                if (hogFlow.trigger?.type !== 'api' || sendsOnlyPush(hogFlow)) {
                     return reply('not_sendable', 400, { error: 'not_sendable' })
                 }
                 const sender = send ? senderOfCodeSend(team.id, send, await senderLookup) : undefined
@@ -1685,7 +1706,12 @@ export class CdpApi {
                 }
                 // A single send answers 404 here, which Django retries. A batch refuses for good: the workflow is gone
                 // for every recipient.
-                if (!hogFlow || hogFlow.team_id !== team.id || hogFlow.trigger?.type !== 'api') {
+                if (
+                    !hogFlow ||
+                    hogFlow.team_id !== team.id ||
+                    hogFlow.trigger?.type !== 'api' ||
+                    sendsOnlyPush(hogFlow)
+                ) {
                     return refuse('not_sendable', 400, { error: 'not_sendable' })
                 }
 
@@ -1864,6 +1890,153 @@ export class CdpApi {
         return res.status(status).json(body)
     }
 
+    private postTransactionalPush = async (req: ModifiedRequest, res: express.Response): Promise<any> => {
+        const reply = (outcome: TransactionalPushOutcome, status: number, body: Record<string, unknown>) => {
+            transactionalPushRequestsTotal.inc({ outcome })
+            return res.status(status).json(body)
+        }
+        try {
+            if (!this.transactionalPushJwt.enabled) {
+                logger.error('🔑', 'Transactional push refused: WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET is unset')
+                return reply('not_configured', 503, {
+                    error: 'Transactional push auth not configured (WORKFLOWS_TRANSACTIONAL_PUSH_JWT_SECRET unset)',
+                })
+            }
+            const claims = this.verifyScopedWorkflowJwt(this.transactionalPushJwt, req, res, 'transactional push')
+            if (!claims) {
+                transactionalPushRequestsTotal.inc({ outcome: 'unauthorized' })
+                return
+            }
+            const parsed = TransactionalPushRequestSchema.safeParse(req.body)
+            if (!parsed.success) {
+                logger.warn('⚠️', 'Transactional push request failed validation', {
+                    team_id: req.params.team_id,
+                    hog_flow_id: req.params.id,
+                    issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), code: issue.code })),
+                })
+                return reply('invalid_request', 400, { error: 'invalid_request' })
+            }
+            const unauthorized = { error: 'Unauthorized: Invalid transactional push token' }
+            if (
+                !isTokenForPerson(claims, parsed.data.distinct_id) ||
+                !expiresBeforeItsUseRecord(claims) ||
+                typeof claims.jti !== 'string' ||
+                !claims.jti
+            ) {
+                return reply('unauthorized', 401, unauthorized)
+            }
+            let tokenUse: 'first_use' | 'used'
+            try {
+                tokenUse = await useTransactionalPushToken(this.redis, claims.jti)
+            } catch (error) {
+                logger.error('🔑', 'Transactional push token check failed', {
+                    error: error instanceof Error ? error.message : String(error),
+                })
+                return reply('token_check_unavailable', 503, { error: 'token_check_unavailable' })
+            }
+            if (tokenUse === 'used') {
+                return reply('token_reused', 401, unauthorized)
+            }
+            const { distinct_id: distinctId, variables, idempotency_key: idempotencyKey } = parsed.data
+
+            const team = await this.deps.teamManager.getTeam(parseInt(req.params.team_id))
+            if (!team) {
+                return reply('not_found', 404, { error: 'Team not found' })
+            }
+            const hogFlow = await this.hogFlowManager.getHogFlowCheckingPrimaryOnMiss(req.params.id)
+            if (!hogFlow || hogFlow.team_id !== team.id) {
+                return reply('not_found', 404, { error: 'Workflow not found' })
+            }
+
+            const { seal, sealing } = createInvocationSanitizer(this.config)
+            // Any push may be marked sensitive mid-request, so none goes out unencrypted. Checked before the claim,
+            // because claims made with the missing key would read as another request's.
+            if (!sealing) {
+                logger.error('🔑', 'Transactional push refused: CDP_SEALED_STATE_KEYS is unset')
+                return reply('not_sealing', 503, { error: 'not_sealing' })
+            }
+
+            // The first one is stored with a new claim. The others match a claim signed before a key rotation.
+            const fingerprints = transactionalPushFingerprints(this.fingerprintSigner, hogFlow.id, parsed.data)
+            const runId = idempotencyKey ? keyedRunId(team.id, TRANSACTIONAL_PUSH_RUN_SCOPE, idempotencyKey) : undefined
+            const answerClaim = (claimedFingerprint: string | undefined) =>
+                claimedFingerprint !== undefined && fingerprints.includes(claimedFingerprint)
+                    ? reply('replayed', 202, { status: 'queued', invocation_id: runId, replayed: true })
+                    : reply('idempotency_key_reused', 422, { error: 'idempotency_key_reused' })
+            const intake = this.transactionalPushIntakeForRequest(seal)
+            // Checked before the workflow, so a retry still gets its answer after someone turns the workflow off.
+            if (runId) {
+                const recalled = await intake.recallWithin(
+                    { runId, fingerprint: fingerprints[0] },
+                    'transactional-push'
+                )
+                if (recalled.status !== 'absent') {
+                    return answerClaim(recalled.claimedFingerprint)
+                }
+            }
+            if (
+                hogFlow.trigger?.type !== 'api' ||
+                hogFlow.status !== 'active' ||
+                !sendsOnePushToRequestPerson(hogFlow)
+            ) {
+                return reply('not_sendable', 400, { error: 'not_sendable' })
+            }
+
+            const event: HogFunctionInvocationGlobals['event'] = {
+                uuid: new UUIDT().toString(),
+                event: TRANSACTIONAL_PUSH_EVENT,
+                distinct_id: distinctId,
+                timestamp: DateTime.now().toISO(),
+                url: '',
+                properties: {},
+                elements_chain: '',
+            }
+            const triggerGlobals: HogFunctionInvocationGlobals = {
+                event,
+                project: {
+                    id: team.id,
+                    name: team.name,
+                    url: `${this.config.SITE_URL ?? 'http://localhost:8000'}/project/${team.id}`,
+                },
+                variables,
+            }
+            const filterGlobals = convertToHogFunctionFilterGlobal({ event, person: undefined, groups: {}, variables })
+            const invocation = createHogFlowInvocation(triggerGlobals, hogFlow, filterGlobals)
+            invocation.state.triggerMetricPending = true
+            if (runId) {
+                invocation.id = runId
+            }
+
+            if ((await checkHogFlowQuotaLimits(hogFlow, team.id, this.deps.quotaLimiting)).isLimited) {
+                return reply('quota_limited', 429, { error: 'quota_limited' })
+            }
+            const run: Run = runId
+                ? { kind: 'transactional-push', invocation, claim: { fingerprint: fingerprints[0] } }
+                : { kind: 'transactional-push', invocation }
+
+            switch (await intake.produce(run)) {
+                case 'accepted':
+                    return reply('queued', 202, { status: 'queued', invocation_id: invocation.id, replayed: false })
+                case 'unavailable':
+                    return reply('intake_unavailable', 503, { error: 'intake_unavailable' })
+                case 'too_large':
+                    return reply('message_too_large', 413, { error: 'message_too_large' })
+                case 'invalid':
+                    return reply('invalid_request', 400, { error: 'invalid_request' })
+            }
+        } catch (e) {
+            logger.error('Error queueing transactional push', { error: e instanceof Error ? e.message : String(e) })
+            return reply('error', 500, { error: 'internal_error' })
+        }
+    }
+
+    private transactionalPushIntakeForRequest(seal: ReturnType<typeof createInvocationSanitizer>['seal']): RunIntake {
+        return new RunIntake({
+            hogflowQueue: this.hogflowQueue,
+            producer: new IntakeProducer(this.outputs, undefined, seal, intakeClusterOf(this.config)),
+        })
+    }
+
     private refusalDeadline?: () => Promise<void>
 
     private transactionalSendsForRequest(): TransactionalSends {
@@ -1984,7 +2157,7 @@ export class CdpApi {
         res: express.Response,
         label: string,
         extraClaims?: Record<string, string | undefined>
-    ): boolean {
+    ): Record<string, unknown> | undefined {
         const { team_id, id } = req.params
         const authHeader = req.headers['authorization']
         const token =
@@ -1999,9 +2172,9 @@ export class CdpApi {
         const flowMatches = id === undefined || claims?.hog_flow_id === id
         if (!claims || claims.team_id !== parseInt(team_id) || !flowMatches || !extrasMatch) {
             res.status(401).json({ error: `Unauthorized: Invalid ${label} token` })
-            return false
+            return undefined
         }
-        return true
+        return claims
     }
 
     // Pull forward the wake times of this workflow's parked jobs after a timing edit. Django
