@@ -26,7 +26,7 @@ The sections between "Understand the cost" and "Measuring" go from the biggest e
 
 - Moving or resizing a tile reuses its chart instance and its query results. Only data changes run queries.
 - When a canvas changes size, draw the new image in the same frame, so the chart never shows blank.
-- Charts that mount together share one request through the query batch runner. Do not add a path that sends one request per tile.
+- Charts that mount together share the query batch runner's few streams, at most `MAX_STREAMS`. Do not add a path that sends one request per tile.
 - A change that runs queries again, such as a filter or a refresh, runs them for every mounted chart. Keep that set to the charts on screen, and make sure visible tiles do not wait behind off-screen ones.
 
 ## Re-renders

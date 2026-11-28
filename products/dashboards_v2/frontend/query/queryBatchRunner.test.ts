@@ -283,6 +283,60 @@ describe('createQueryBatchRunner', () => {
         await expect(retried).resolves.toEqual(totalOf(1))
     })
 
+    const sqlTotal = (total: number): QueryRequest => ({
+        query: { language: 'hogql', query: `select ${total} as total` },
+        time: TIME,
+    })
+    const promqlTotal = (total: number): QueryRequest => ({
+        query: { language: 'promql', query: `vector(${total})` },
+        time: TIME,
+    })
+    const askedTotals = (stream: OpenStream): number[] =>
+        stream.body.queries.map((query: any) => Number(query.target.query.match(/\d+/)[0]))
+
+    it("spreads a board's first queries across every free stream and routes each line to its chart", async () => {
+        const runQuery = createQueryBatchRunner(7)
+        const totals = Array.from({ length: 15 }, (_, total) => total)
+        const results = totals.map((total) => runQuery(total < 3 ? promqlTotal(total) : sqlTotal(total)))
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS)
+        expect(streams.map((stream) => stream.body.queries.length)).toEqual([5, 5, 5])
+        expect(streams.map((stream) => stream.body.queries[0].target.language)).toEqual(['promql', 'promql', 'promql'])
+        for (const stream of streams) {
+            askedTotals(stream).forEach((total, i) => answer(stream, i, total))
+        }
+        await expect(Promise.all(results)).resolves.toEqual(totals.map(totalOf))
+    })
+
+    it('keeps repeats of a query in one stream, whatever their legends', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        for (let total = 0; total < 6; total++) {
+            void runQuery(sqlTotal(total)).catch(() => {})
+            void runQuery({ ...sqlTotal(total), legend: 'again' }).catch(() => {})
+        }
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(MAX_STREAMS)
+        const asked = streams.map(askedTotals)
+        expect(asked.flat().sort((a, b) => a - b)).toEqual([0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5])
+        for (const totalsInStream of asked) {
+            for (const total of totalsInStream) {
+                expect(totalsInStream.filter((other) => other === total)).toHaveLength(2)
+            }
+        }
+    })
+
+    it('sends two charts as one stream', async () => {
+        const runQuery = createQueryBatchRunner(7)
+        void runQuery(SQL).catch(() => {})
+        void runQuery(TRENDS).catch(() => {})
+        await flush()
+
+        expect(globalThis.fetch).toHaveBeenCalledTimes(1)
+        expect(streams[0].body.queries).toHaveLength(2)
+    })
+
     it('asks once more for a query answered busy, a second after the stream ends, even when another stream is free', async () => {
         const runQuery = createQueryBatchRunner(7)
         const result = runQuery(SQL)
