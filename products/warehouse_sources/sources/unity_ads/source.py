@@ -19,10 +19,18 @@ from products.warehouse_sources.sources.sdk import (
     build_endpoint_schemas,
 )
 from products.warehouse_sources.sources.unity_ads._config import UnityAdsSourceConfig
-from products.warehouse_sources.sources.unity_ads.settings import ENDPOINTS, INCREMENTAL_FIELDS, LOOKBACK, MERGE_ONLY
+from products.warehouse_sources.sources.unity_ads.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    LOOKBACK,
+    MERGE_ONLY,
+    SYNC_DEFAULTS,
+)
 from products.warehouse_sources.sources.unity_ads.unity_ads import (
     INVALID_ORGANIZATION_ID,
+    MANAGEMENT_PERMISSION_ERROR,
     UnityAdsResumeConfig,
+    unity_ads_endpoint_permissions,
     unity_ads_source,
     validate_credentials as validate_unity_credentials,
 )
@@ -46,6 +54,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
             "401 Client Error: Unauthorized for url: https://services.api.unity.com": (
                 "Unity rejected the service account key. Create a new key and update the source."
             ),
+            "403 Client Error: Forbidden for url: https://services.api.unity.com/advertise/v1/": MANAGEMENT_PERMISSION_ERROR,
             "403 Client Error: Forbidden for url: https://services.api.unity.com": (
                 "The service account cannot read statistics. Give it the Advertise Stats API Viewer role in Unity."
             ),
@@ -70,7 +79,12 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
         api_version: str | None = None,
     ) -> list[SourceSchema]:
         return build_endpoint_schemas(
-            ENDPOINTS, INCREMENTAL_FIELDS, names, merge_only=MERGE_ONLY, default_incremental_lookback_seconds=LOOKBACK
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=MERGE_ONLY,
+            should_sync_default=SYNC_DEFAULTS,
+            default_incremental_lookback_seconds=LOOKBACK,
         )
 
     def validate_credentials(
@@ -80,7 +94,12 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        return validate_unity_credentials(config.organization_id, config.key_id, config.secret_key)
+        return validate_unity_credentials(config.organization_id, config.key_id, config.secret_key, schema_name)
+
+    def get_endpoint_permissions(
+        self, config: UnityAdsSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return unity_ads_endpoint_permissions(config.organization_id, config.key_id, config.secret_key, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UnityAdsResumeConfig]:
         return ResumableSourceManager[UnityAdsResumeConfig](inputs, UnityAdsResumeConfig)
@@ -110,7 +129,7 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
             category=DataWarehouseSourceCategory.ADVERTISING,
             keywords=["unity", "user acquisition"],
             label="Unity Ads",
-            caption="Sync daily user acquisition statistics for your Unity Ads campaigns, by campaign and by country.",
+            caption="Sync Unity Ads acquisition statistics, SKAN installs, apps, campaigns, and bids.",
             docsUrl="https://posthog.com/docs/cdp/sources/unity-ads",
             iconPath="/static/services/unity_ads.png",
             releaseStatus=ReleaseStatus.BETA,
@@ -129,7 +148,11 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
                     SourceFieldInputConfig(
                         name="key_id",
                         label="Key ID",
-                        caption="Create a service account key with the Advertise Stats API Viewer role.",
+                        caption=(
+                            "To sync statistics, give the service account the Advertise Stats API Viewer role. "
+                            "To sync apps, campaigns, or bids, enable the Advertising Management API "
+                            "and add the Advertise API Viewer role."
+                        ),
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="",

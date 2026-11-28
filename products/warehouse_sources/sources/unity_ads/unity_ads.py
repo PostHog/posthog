@@ -1,13 +1,17 @@
+import re
+from bisect import bisect_left
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import ReadTimeout
+from requests import HTTPError, ReadTimeout
 from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
 from products.warehouse_sources.sources.sdk import (
     HttpBasicAuth,
+    OffsetPaginator,
     RESTClient,
     RESTClientRetryableError,
     ResumableSourceManager,
@@ -18,9 +22,11 @@ from products.warehouse_sources.sources.sdk import (
 )
 from products.warehouse_sources.sources.unity_ads.settings import (
     HISTORY_DAYS,
-    METRICS,
+    MANAGEMENT_PRIMARY_KEYS,
     UNITY_ADS_ENDPOINTS,
+    UNITY_MANAGEMENT_URL,
     UNITY_STATS_URL,
+    UnityAdsEndpointConfig,
 )
 
 # Unity allows a report request 10 minutes, but one request may hold a worker for 5 at most, so short
@@ -31,13 +37,20 @@ REQUEST_TIMEOUT = (10, 240)
 PROBE_TIMEOUT = 60
 
 INVALID_ORGANIZATION_ID = "The Unity organization ID must be the numeric Organization core ID"
+_MANAGEMENT_ID = re.compile(r"[0-9a-fA-F]{24}")
+_APPS_PAGE_SIZE = 1000
+STATS_PERMISSION_ERROR = "Give the service account the Advertise Stats API Viewer role."
+MANAGEMENT_PERMISSION_ERROR = "Enable the Advertising Management API for your organization. Give the service account the Advertise API Viewer role."
 
 
 @frozen
 class UnityAdsResumeConfig:
-    next_window_start: str
+    next_window_start: str | None = None
     # The window size after halving, so a resumed run does not time out again on full-size windows.
     window_days: int | None = None
+    apps_offset: int = 0
+    next_app_id: str | None = None
+    next_campaign_id: str | None = None
 
 
 def to_date(value: Any) -> date:
@@ -55,7 +68,7 @@ def _iso(day: date) -> str:
 def _windows(
     client: RESTClient,
     url: str,
-    breakdowns: tuple[str, ...],
+    config: UnityAdsEndpointConfig,
     window_days: int,
     start: date,
     today: date,
@@ -75,8 +88,8 @@ def _windows(
                     # `end` is exclusive.
                     "end": _iso(last_day + timedelta(days=1)),
                     "scale": "day",
-                    "metrics": ",".join(METRICS),
-                    "breakdowns": ",".join(breakdowns),
+                    "metrics": ",".join(config.metrics),
+                    "breakdowns": ",".join(config.breakdowns),
                     "format": "json",
                 },
                 paginator=SinglePagePaginator(),
@@ -105,6 +118,116 @@ def _windows(
         window = next_window
 
 
+def _management_id(row: dict[str, Any]) -> str:
+    identifier = row.get("id")
+    if not isinstance(identifier, str) or not _MANAGEMENT_ID.fullmatch(identifier):
+        raise ValueError("Unity returned an invalid app or campaign ID")
+    return identifier
+
+
+def _resume_index(ids: list[str], next_id: str | None) -> int:
+    return bisect_left(ids, next_id) if next_id is not None else 0
+
+
+def _management_child_rows(client: RESTClient, url: str) -> list[dict[str, Any]]:
+    try:
+        page = next(client.paginate(url, paginator=SinglePagePaginator()), [])
+    except HTTPError as error:
+        if error.response is not None and error.response.status_code == 404:
+            return []
+        raise
+    if not page:
+        return []
+    if len(page) != 1 or not isinstance(page[0], dict) or not isinstance(rows := page[0].get("results"), list):
+        raise RESTClientRetryableError("Unity returned an unexpected management response.")
+    total = page[0].get("total")
+    if isinstance(total, int) and total > len(rows):
+        raise RESTClientRetryableError("Unity returned fewer management rows than it reported.")
+    return rows
+
+
+def _management_app_rows(
+    client: RESTClient,
+    apps_url: str,
+    endpoint: str,
+    manager: ResumableSourceManager[UnityAdsResumeConfig],
+    current_app: UnityAdsResumeConfig,
+    next_app: UnityAdsResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    app_id = current_app.next_app_id
+    campaigns_url = f"{apps_url}/{app_id}/campaigns"
+    campaigns = _management_child_rows(client, campaigns_url)
+    if not campaigns or endpoint == "campaigns":
+        manager.save_state(next_app)
+        if campaigns:
+            yield [{**campaign, "campaignSetId": app_id} for campaign in campaigns]
+        else:
+            manager.safe_point()
+        return
+
+    bid_path = endpoint.replace("_", "-")
+    campaign_ids = sorted(_management_id(campaign) for campaign in campaigns)
+    first_campaign = _resume_index(campaign_ids, current_app.next_campaign_id)
+    if first_campaign == len(campaign_ids):
+        manager.save_state(next_app)
+        manager.safe_point()
+        return
+    for campaign_index in range(first_campaign, len(campaign_ids)):
+        campaign_id = campaign_ids[campaign_index]
+        bids = _management_child_rows(client, f"{campaigns_url}/{campaign_id}/{bid_path}")
+        manager.save_state(
+            replace(current_app, next_campaign_id=campaign_ids[campaign_index + 1])
+            if campaign_index + 1 < len(campaign_ids)
+            else next_app
+        )
+        if bids:
+            yield [{**bid, "campaignSetId": app_id, "campaignId": campaign_id} for bid in bids]
+        else:
+            manager.safe_point()
+
+
+def _management_rows(
+    client: RESTClient,
+    url: str,
+    endpoint: str,
+    manager: ResumableSourceManager[UnityAdsResumeConfig],
+    resume: UnityAdsResumeConfig,
+) -> Iterator[list[dict[str, Any]]]:
+    apps_url = f"{url}/apps"
+    offset = resume.apps_offset
+    for apps in client.paginate(
+        apps_url, paginator=OffsetPaginator(limit=_APPS_PAGE_SIZE, offset=offset), data_selector="results"
+    ):
+        next_page = UnityAdsResumeConfig(apps_offset=offset + _APPS_PAGE_SIZE)
+        if not apps:
+            manager.safe_point()
+            return
+        if endpoint == "apps":
+            manager.save_state(next_page)
+            yield apps
+        else:
+            app_ids = sorted(_management_id(app) for app in apps)
+            next_app_id = resume.next_app_id if offset == resume.apps_offset else None
+            first_app = _resume_index(app_ids, next_app_id)
+            if first_app == len(app_ids):
+                manager.save_state(next_page)
+                manager.safe_point()
+            for app_index in range(first_app, len(app_ids)):
+                app_id = app_ids[app_index]
+                next_app = (
+                    UnityAdsResumeConfig(apps_offset=offset, next_app_id=app_ids[app_index + 1])
+                    if app_index + 1 < len(app_ids)
+                    else next_page
+                )
+                current_app = UnityAdsResumeConfig(
+                    apps_offset=offset,
+                    next_app_id=app_id,
+                    next_campaign_id=resume.next_campaign_id if app_id == next_app_id else None,
+                )
+                yield from _management_app_rows(client, apps_url, endpoint, manager, current_app, next_app)
+        offset = next_page.apps_offset
+
+
 def unity_ads_source(
     organization_id: str,
     key_id: str,
@@ -114,17 +237,32 @@ def unity_ads_source(
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
 ) -> SourceResponse:
-    config = UNITY_ADS_ENDPOINTS[endpoint]
     organization_id = organization_id.strip()
     # The ID goes into the request path, so anything but digits is refused.
     if not organization_id.isdigit():
         raise ValueError(INVALID_ORGANIZATION_ID)
+    client = RESTClient(
+        auth=HttpBasicAuth(key_id, secret_key),
+        request_timeout=REQUEST_TIMEOUT,
+        retry_budget_seconds=REQUEST_TIMEOUT[1],
+    )
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if endpoint in MANAGEMENT_PRIMARY_KEYS:
+        management_url = UNITY_MANAGEMENT_URL.format(organization_id=organization_id)
+        return SourceResponse(
+            name=endpoint,
+            items=lambda: _management_rows(
+                client, management_url, endpoint, resumable_source_manager, resume or UnityAdsResumeConfig()
+            ),
+            primary_keys=list(MANAGEMENT_PRIMARY_KEYS[endpoint]),
+        )
+
+    config = UNITY_ADS_ENDPOINTS[endpoint]
     today = datetime.now(UTC).date()
     floor = today - timedelta(days=HISTORY_DAYS)
 
-    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     window_days = config.window_days
-    if resume is not None:
+    if resume is not None and resume.next_window_start is not None:
         window_days = min(resume.window_days or window_days, window_days)
         start = date.fromisoformat(resume.next_window_start)
     elif should_use_incremental_field and db_incremental_field_last_value is not None:
@@ -132,16 +270,11 @@ def unity_ads_source(
     else:
         start = floor
 
-    client = RESTClient(
-        auth=HttpBasicAuth(key_id, secret_key),
-        request_timeout=REQUEST_TIMEOUT,
-        retry_budget_seconds=REQUEST_TIMEOUT[1],
-    )
-    url = UNITY_STATS_URL.format(organization_id=organization_id)
+    url = UNITY_STATS_URL.format(organization_id=organization_id, report=config.report)
 
     return SourceResponse(
         name=endpoint,
-        items=lambda: _windows(client, url, config.breakdowns, window_days, start, today, resumable_source_manager),
+        items=lambda: _windows(client, url, config, window_days, start, today, resumable_source_manager),
         primary_keys=list(config.primary_keys),
         partition_count=1,
         partition_size=1,
@@ -152,34 +285,79 @@ def unity_ads_source(
     )
 
 
-def validate_credentials(organization_id: str, key_id: str, secret_key: str) -> tuple[bool, str | None]:
-    if not organization_id.strip().isdigit():
-        return False, f"{INVALID_ORGANIZATION_ID}. Find it under Settings in the Unity Ads dashboard."
+def _stats_probe_params(report: UnityAdsEndpointConfig | None) -> dict[str, str | int]:
     today = datetime.now(UTC).date()
+    params: dict[str, str | int] = {
+        "start": _iso(today - timedelta(days=1)),
+        "end": _iso(today),
+        "scale": "day",
+        "metrics": ",".join(report.metrics) if report else "starts",
+        "format": "json",
+    }
+    if report is not None:
+        params["breakdowns"] = ",".join(report.breakdowns)
+    return params
+
+
+def _credential_probe_status(
+    organization_id: str, key_id: str, secret_key: str, schema_name: str | None = None
+) -> int | None:
+    apps_url = f"{UNITY_MANAGEMENT_URL.format(organization_id=organization_id)}/apps"
+    if schema_name in MANAGEMENT_PRIMARY_KEYS:
+        url = apps_url
+        params: dict[str, str | int] = {"limit": 1}
+    else:
+        report = UNITY_ADS_ENDPOINTS.get(schema_name) if schema_name is not None else None
+        url = UNITY_STATS_URL.format(
+            organization_id=organization_id, report=report.report if report else "acquisitions"
+        )
+        params = _stats_probe_params(report)
+
     try:
-        response = make_tracked_session(redact_values=(secret_key,), allow_redirects=False, retry=Retry(total=0)).get(
-            UNITY_STATS_URL.format(organization_id=organization_id.strip()),
-            params={
-                "start": _iso(today - timedelta(days=1)),
-                "end": _iso(today),
-                "scale": "day",
-                "metrics": "starts",
-                "format": "json",
-            },
-            auth=HTTPBasicAuth(key_id, secret_key),
-            timeout=PROBE_TIMEOUT,
-        )
+        with make_tracked_session(redact_values=(secret_key,), allow_redirects=False, retry=Retry(total=0)) as session:
+            auth = HTTPBasicAuth(key_id, secret_key)
+            response = session.get(url, params=params, auth=auth, timeout=PROBE_TIMEOUT)
+            if schema_name is None and response.status_code == 403:
+                response = session.get(apps_url, params={"limit": 1}, auth=auth, timeout=PROBE_TIMEOUT)
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
-        return False, "Could not connect to Unity. Try again in a minute."
-    if response.status_code in (200, 204):
+        return None
+    return response.status_code
+
+
+def unity_ads_endpoint_permissions(
+    organization_id: str, key_id: str, secret_key: str, endpoints: list[str]
+) -> dict[str, str | None]:
+    organization_id = organization_id.strip()
+    permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+    if not organization_id.isdigit():
+        return permissions
+    for group, reason in (
+        (UNITY_ADS_ENDPOINTS, STATS_PERMISSION_ERROR),
+        (MANAGEMENT_PRIMARY_KEYS, MANAGEMENT_PERMISSION_ERROR),
+    ):
+        selected = [name for name in group if name in permissions]
+        if selected and _credential_probe_status(organization_id, key_id, secret_key, selected[0]) == 403:
+            permissions.update(dict.fromkeys(selected, reason))
+    return permissions
+
+
+def validate_credentials(
+    organization_id: str, key_id: str, secret_key: str, schema_name: str | None = None
+) -> tuple[bool, str | None]:
+    organization_id = organization_id.strip()
+    if not organization_id.isdigit():
+        return False, f"{INVALID_ORGANIZATION_ID}. Find it under Settings in the Unity Ads dashboard."
+    status = _credential_probe_status(organization_id, key_id, secret_key, schema_name)
+    if status in (200, 204):
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Unity rejected the key ID or secret key. Check the service account key and try again."
-    if response.status_code == 403:
-        return (
-            False,
-            "The service account cannot read statistics for this organization. Give it the Advertise Stats API Viewer role.",
-        )
-    if response.status_code == 404:
+    if status == 403:
+        if schema_name is None:
+            return False, (
+                "Give the service account the Advertise Stats API Viewer role or the Advertise API Viewer role."
+            )
+        return False, MANAGEMENT_PERMISSION_ERROR if schema_name in MANAGEMENT_PRIMARY_KEYS else STATS_PERMISSION_ERROR
+    if status == 404:
         return False, "Unity found no organization with that ID. Use the Organization core ID from Settings."
     return False, "Could not connect to Unity. Try again in a minute."

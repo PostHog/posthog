@@ -15533,21 +15533,21 @@ Note: Read llms.txt for the Umami docs and confirmed each path from the OpenAPI 
 
 ## Unity Ads — **thin**
 
-Today (2): `campaigns_daily`, `campaigns_daily_by_country`
+Today (7): `campaigns_daily`, `campaigns_daily_by_country`, `skan_daily`, `apps`, `campaigns`, `cpi_bids`, `source_bids`
 
-Diffed against: <https://docs.unity.com/en-us/oas-advertise/1.0.0.md>
+Diffed against: <https://docs.unity.com/en-us/oas-advertise/1.0.0.md> and <https://docs.unity.com/en-us/oas-statistics/2.0.0.md>
 
-- [ ] `Apps (GET /advertise/v1/organizations/{organizationId}/apps)` — Advertised apps (campaign sets) with store ids and names, resolves the campaign set id used by every campaign (high)
-- [ ] `Campaigns (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns)` — Campaign configuration, status and type per app, resolves campaignId on the stats tables (high)
-- [ ] `SKAN report (GET /advertise/stats/v2/organizations/{organizationId}/reports/skan)` — SKAdNetwork install and conversion value stats for iOS, the only iOS performance view (high)
+- [x] `Apps (GET /advertise/v1/organizations/{organizationId}/apps)` — `apps` lists advertised apps with store identifiers and names.
+- [x] `Campaigns (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns)` — `campaigns` syncs campaign settings for each app.
+- [x] `SKAN report (GET /advertise/stats/v2/organizations/{organizationId}/reports/skan)` — `skan_daily` syncs installs by day, campaign, and conversion value.
 - [ ] `Campaign budgets (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/budget)` — Daily and total budget per campaign, for spend pacing against stats (medium)
 - [ ] `Creatives (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/creatives)` — Creative assets per app (medium)
 - [ ] `Creative packs (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/creative-packs)` — Creative pack definitions that campaigns run (low)
 - [ ] `Assigned creative packs (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/assigned-creative-packs)` — Which creative packs each campaign runs, join table (low)
-- [ ] `CPI and source bids (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/cpi-bids; GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/source-bids)` — Bid levels by country and source, explains CPI changes in stats (medium)
+- [x] `CPI and source bids (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/cpi-bids; GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/source-bids)` — `cpi_bids` and `source_bids` sync current bid settings.
 - [ ] `Campaign targeting (GET /advertise/v1/organizations/{organizationId}/apps/{campaignSetId}/campaigns/{campaignId}/targeting)` — Targeting options per campaign (low)
 
-Note: Parsed the OpenAPI JSON of the Advertising Management API 1.0.0 and the Statistics API 2.0.0 (reports acquisitions and skan). We sync only the acquisitions report with two breakdowns. All management routes fan out from apps to campaigns, and there are no updated-after filters. Excluded create and assign writes, ROAS and retention eligibility, the Developer API and the newer unified platform API, which looks like a separate migrated API. The stats API quota is 30 requests per 30 minutes, which our source documents.
+Note: Verified the routes against the Advertising Management API 1.0.0 and Statistics API 2.0.0 specifications. The management tables use full refresh and require the Advertise API Viewer role. The statistics reports support incremental sync and share a quota of 30 requests per 30 minutes. The audit excludes write routes, ROAS and retention eligibility, the Developer API, and the unified platform API.
 
 ## Unleash — gaps
 

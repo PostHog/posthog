@@ -7,6 +7,7 @@ import time_machine
 
 import requests
 
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -40,6 +41,10 @@ def _window_days(request: RecordedRequest) -> int:
 
 def _rows(*rows: dict[str, Any]) -> ScriptedResponse:
     return ScriptedResponse(json={"data": list(rows)})
+
+
+def _results(*rows: dict[str, Any], total: int | None = None) -> ScriptedResponse:
+    return ScriptedResponse(json={"results": list(rows), "total": len(rows) if total is None else total})
 
 
 class TestWindows:
@@ -85,17 +90,34 @@ class TestWindows:
         assert result.rows == []
 
     @pytest.mark.parametrize(
-        ("endpoint", "expected_requests"), [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)]
+        ("endpoint", "expected_requests"),
+        [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)],
     )
-    def test_a_first_sync_of_both_tables_fits_one_rate_limit_window(
-        self, endpoint: str, expected_requests: int
-    ) -> None:
-        # Unity allows 30 requests per 30 minutes per organization, shared by both tables.
+    def test_a_first_sync_keeps_requests_within_the_shared_quota(self, endpoint: str, expected_requests: int) -> None:
         result = _run(endpoint, always(ScriptedResponse(status=204)))
 
         assert result.raised is None
         assert result.params("start")[0] == "2025-10-15T00:00:00Z"
         assert len(result.requests) == expected_requests
+
+    def test_skan_reads_the_incremental_window_with_conversion_values(self) -> None:
+        rows = [
+            {"timestamp": "2026-10-14", "campaignId": "campaign-1", "conversionValue": 0, "installs": 11},
+            {"timestamp": "2026-10-14", "campaignId": "campaign-1", "conversionValue": 4, "installs": 5},
+        ]
+        result = _run(
+            "skan_daily",
+            [_rows(*rows)],
+            incremental_field="timestamp",
+            db_incremental_field_last_value=date(2026, 10, 14),
+        )
+
+        assert result.raised is None
+        assert result.paths == ["/advertise/stats/v2/organizations/5772916123937/reports/skan"]
+        request = result.requests[0]
+        assert (request.param("start"), request.param("end")) == ("2026-10-14T00:00:00Z", "2026-10-16T00:00:00Z")
+        assert (request.param("metrics"), request.param("breakdowns")) == ("installs", "campaign,conversionValue")
+        assert result.rows == rows
 
     def test_a_window_that_keeps_timing_out_is_halved_until_it_answers(self) -> None:
         # Unity's report for a large account can outlast the read timeout on every retry of the same window.
@@ -151,6 +173,178 @@ class TestWindows:
         assert "401 Client Error: Unauthorized for url: https://services.api.unity.com" in str(result.raised)
 
 
+class TestManagementTables:
+    def test_apps_follow_the_offset_until_the_last_page(self) -> None:
+        first_page = [{"id": f"{index:024x}"} for index in range(1000)]
+        last_app = {"id": "a" * 24, "storeId": "com.example.game"}
+        result = _run("apps", [_results(*first_page, total=1001), _results(last_app, total=1001)])
+
+        assert result.raised is None
+        assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"] * 2
+        assert [str(request.param("offset")) for request in result.requests] == ["0", "1000"]
+        assert result.rows == [*first_page, last_app]
+
+    @pytest.mark.parametrize(
+        ("endpoint", "bid_row"),
+        [
+            ("campaigns", None),
+            ("cpi_bids", {"country": "US", "bid": "0.201"}),
+            ("source_bids", {"country": "US", "bid": "0.201", "sourceAppId": "exampleApp01"}),
+        ],
+    )
+    def test_management_rows_keep_the_parent_ids(self, endpoint: str, bid_row: dict[str, str] | None) -> None:
+        apps = [{"id": "a" * 24}, {"id": "b" * 24}]
+        campaigns = [{"id": "c" * 24, "enabled": True}, {"id": "d" * 24, "enabled": False}]
+        apps_path = "/advertise/v1/organizations/5772916123937/apps"
+        paths = [apps_path]
+        responses = [_results(*apps)]
+        expected_rows = []
+        for app, campaign in zip(apps, campaigns):
+            campaign_path = f"{apps_path}/{app['id']}/campaigns"
+            paths.append(campaign_path)
+            responses.append(_results(campaign))
+            if bid_row is None:
+                expected_rows.append({**campaign, "campaignSetId": app["id"]})
+            else:
+                paths.append(f"{campaign_path}/{campaign['id']}/{endpoint.replace('_', '-')}")
+                responses.append(_results(bid_row))
+                expected_rows.append({**bid_row, "campaignSetId": app["id"], "campaignId": campaign["id"]})
+
+        result = _run(endpoint, responses)
+
+        assert result.raised is None
+        assert result.paths == paths
+        assert result.rows == expected_rows
+
+    def test_an_invalid_app_id_never_reaches_a_campaign_url(self) -> None:
+        result = _run("campaigns", [_results({"id": "../../other"})])
+
+        assert isinstance(result.raised, ValueError)
+        assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"]
+
+    def test_empty_apps_checkpoint_without_yielding_rows(self) -> None:
+        app_ids = [f"{index:024x}" for index in range(5)]
+        result = _run("cpi_bids", [_results(*({"id": app_id} for app_id in app_ids)), *[_results()] * 5])
+
+        assert result.raised is None
+        assert result.items == []
+        assert result.committed_states == [
+            *(UnityAdsResumeConfig(next_app_id=app_id) for app_id in app_ids[1:]),
+            UnityAdsResumeConfig(apps_offset=1000),
+        ]
+
+    @pytest.mark.parametrize("endpoint", ["campaigns", "source_bids"])
+    def test_incomplete_child_response_fails_without_advancing_the_checkpoint(self, endpoint: str) -> None:
+        responses = [_results({"id": "a" * 24})]
+        if endpoint == "campaigns":
+            responses.append(_results({"id": "b" * 24}, total=2))
+        else:
+            responses.extend([_results({"id": "b" * 24}), _results({"country": "US", "sourceAppId": "demo"}, total=2)])
+
+        result = _run(endpoint, responses)
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert "fewer management rows" in str(result.raised)
+        assert result.rows == []
+        assert result.committed_states == []
+
+    def test_bid_sync_skips_deleted_parents_and_keeps_later_rows(self) -> None:
+        missing_app, app_id, missing_campaign, campaign_id = (letter * 24 for letter in "abcd")
+        bid = {"country": "US", "bid": "0.201"}
+        result = _run(
+            "cpi_bids",
+            [
+                _results({"id": missing_app}, {"id": app_id}),
+                ScriptedResponse(status=404),
+                _results({"id": missing_campaign}, {"id": campaign_id}),
+                ScriptedResponse(status=404),
+                _results(bid),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**bid, "campaignSetId": app_id, "campaignId": campaign_id}]
+        assert result.committed_states == [
+            UnityAdsResumeConfig(next_app_id=app_id),
+            UnityAdsResumeConfig(next_app_id=app_id, next_campaign_id=campaign_id),
+            UnityAdsResumeConfig(apps_offset=1000),
+        ]
+
+    @pytest.mark.parametrize("remaining_campaign", ["d" * 24, "e" * 24, None])
+    def test_bid_sync_resumes_at_the_next_campaign_after_a_failed_request(self, remaining_campaign: str | None) -> None:
+        completed_app = "a" * 24
+        current_app = "b" * 24
+        first_campaign = "c" * 24
+        next_campaign = "d" * 24
+        campaign_path = f"/advertise/v1/organizations/5772916123937/apps/{current_app}/campaigns"
+        first = _run(
+            "cpi_bids",
+            [
+                _results({"id": completed_app}, {"id": current_app}),
+                _results(),
+                _results({"id": first_campaign}, {"id": next_campaign}),
+                _results({"country": "US", "bid": "0.201"}),
+                ScriptedResponse(status=401),
+            ],
+            resume_state=UnityAdsResumeConfig(apps_offset=1000),
+        )
+
+        assert first.raised is not None
+        assert first.rows == [
+            {"country": "US", "bid": "0.201", "campaignSetId": current_app, "campaignId": first_campaign}
+        ]
+
+        campaigns = [{"id": first_campaign}]
+        bid_responses = []
+        expected_paths = [campaign_path]
+        expected_rows = []
+        if remaining_campaign is not None:
+            campaigns.insert(0, {"id": remaining_campaign})
+            bid_responses.append(_results({"country": "CA", "bid": "0.304"}))
+            expected_paths.append(f"{campaign_path}/{remaining_campaign}/cpi-bids")
+            expected_rows.append(
+                {"country": "CA", "bid": "0.304", "campaignSetId": current_app, "campaignId": remaining_campaign}
+            )
+
+        resumed = _run(
+            "cpi_bids",
+            [_results({"id": current_app}, {"id": completed_app}), _results(*campaigns), *bid_responses],
+            resume_state=first.final_state,
+        )
+
+        assert resumed.raised is None
+        assert resumed.params("offset")[0] == "1000"
+        assert resumed.paths[1:] == expected_paths
+        assert resumed.rows == expected_rows
+        assert resumed.final_state == UnityAdsResumeConfig(apps_offset=2000)
+
+    @pytest.mark.parametrize("remaining_app", ["c" * 24, None])
+    def test_bid_sync_skips_completed_apps_when_the_resume_app_is_deleted(self, remaining_app: str | None) -> None:
+        apps = [{"id": "a" * 24}]
+        child_responses = []
+        expected_paths = []
+        expected_rows = []
+        if remaining_app is not None:
+            campaign_id = "d" * 24
+            campaign_path = f"/advertise/v1/organizations/5772916123937/apps/{remaining_app}/campaigns"
+            bid = {"country": "CA", "bid": "0.304"}
+            apps.insert(0, {"id": remaining_app})
+            child_responses = [_results({"id": campaign_id}), _results(bid)]
+            expected_paths = [campaign_path, f"{campaign_path}/{campaign_id}/cpi-bids"]
+            expected_rows = [{**bid, "campaignSetId": remaining_app, "campaignId": campaign_id}]
+
+        resumed = _run(
+            "cpi_bids",
+            [_results(*apps), *child_responses],
+            resume_state=UnityAdsResumeConfig(apps_offset=1000, next_app_id="b" * 24, next_campaign_id="e" * 24),
+        )
+
+        assert resumed.raised is None
+        assert resumed.paths[1:] == expected_paths
+        assert resumed.rows == expected_rows
+        assert resumed.final_state == UnityAdsResumeConfig(apps_offset=2000)
+
+
 class TestValidateCredentials:
     @pytest.mark.parametrize(
         ("response", "expected_valid", "message_fragment"),
@@ -171,6 +365,63 @@ class TestValidateCredentials:
             assert message is not None and message_fragment in message
         # Setup waits on the probe, so a failed request gets no retry.
         assert len(network.requests_log) == 1
+
+    def test_source_creation_accepts_a_management_only_key(self) -> None:
+        with scripted_network([ScriptedResponse(status=403), _results()]) as network:
+            result = validate_credentials("5772916123937", "kid", "ksecret")
+
+        assert result == (True, None)
+        assert [request.path for request in network.requests_log] == [
+            "/advertise/stats/v2/organizations/5772916123937/reports/acquisitions",
+            "/advertise/v1/organizations/5772916123937/apps",
+        ]
+        assert network.requests_log[1].param("limit") == "1"
+
+    @pytest.mark.parametrize(
+        ("stats_status", "management_status", "unavailable", "role"),
+        [
+            (403, 200, {"campaigns_daily", "skan_daily"}, "Advertise Stats API Viewer"),
+            (204, 403, {"apps", "source_bids"}, "Advertise API Viewer"),
+            (429, 503, set(), ""),
+        ],
+    )
+    def test_schema_picker_reports_only_denied_api_access(
+        self, stats_status: int, management_status: int, unavailable: set[str], role: str
+    ) -> None:
+        config = UnityAdsSourceConfig(organization_id="5772916123937", key_id="kid", secret_key="ksecret")
+        endpoints = ["campaigns_daily", "skan_daily", "apps", "source_bids"]
+        with scripted_network(
+            [ScriptedResponse(status=stats_status), ScriptedResponse(status=management_status)]
+        ) as network:
+            permissions = UnityAdsSource().get_endpoint_permissions(config, team_id=1, endpoints=endpoints)
+
+        assert set(permissions) == set(endpoints)
+        assert {name for name, reason in permissions.items() if reason is not None} == unavailable
+        assert all(role in (permissions[name] or "") for name in unavailable)
+        assert [request.path for request in network.requests_log] == [
+            "/advertise/stats/v2/organizations/5772916123937/reports/acquisitions",
+            "/advertise/v1/organizations/5772916123937/apps",
+        ]
+
+    @pytest.mark.parametrize(
+        ("schema_name", "path", "role"),
+        [
+            ("source_bids", "/advertise/v1/organizations/5772916123937/apps", "Advertise API Viewer"),
+            (
+                "skan_daily",
+                "/advertise/stats/v2/organizations/5772916123937/reports/skan",
+                "Advertise Stats API Viewer",
+            ),
+        ],
+    )
+    def test_table_validation_checks_the_requested_api(self, schema_name: str, path: str, role: str) -> None:
+        config = UnityAdsSourceConfig(organization_id="5772916123937", key_id="kid", secret_key="ksecret")
+        with scripted_network([ScriptedResponse(status=403)]) as network:
+            valid, message = UnityAdsSource().validate_credentials(config, team_id=1, schema_name=schema_name)
+
+        assert not valid
+        assert message is not None and role in message
+        assert [request.path for request in network.requests_log] == [path]
 
     def test_a_non_numeric_organization_id_is_refused_without_a_request(self) -> None:
         with scripted_network([]) as network:
