@@ -44,7 +44,8 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     STATS_ENTITY_REJECTED,
     STATS_METRIC_GROUPS,
     STATS_TABLES,
-    UNSORTABLE_TABLES,
+    TARGETING_CRITERIA_LINE_ITEM_LIMIT,
+    UNSORTED_TABLES,
     VIDEO_AND_CONVERSION_METRIC_GROUPS,
     VIDEO_METRICS,
     conversion_column,
@@ -87,6 +88,8 @@ class TwitterAdsResumeConfig:
     next_date: str | None = None
     end_date: str | None = None
     complete: bool = False
+    line_items_cursor: str | None = None
+    line_item_ids: str | None = None
 
 
 @frozen
@@ -274,15 +277,16 @@ class TwitterAdsClient:
             raise ValueError("X Ads returned an unexpected response")
         return response.json()
 
-    def pages(self, path: str, cursor: str | None = None) -> Iterator[dict[str, Any]]:
+    def pages(
+        self, path: str, cursor: str | None = None, *, params: dict[str, str | int] | None = None
+    ) -> Iterator[dict[str, Any]]:
         table = path.rsplit("/", 1)[-1]
+        page_params: dict[str, str | int] = {"count": PAGE_SIZES.get(table, 1000), "with_deleted": "true"}
+        if table not in UNSORTED_TABLES:
+            page_params["sort_by"] = "created_at-asc"
+        page_params.update(params or {})
         while True:
-            params: dict[str, str | int] = {"count": PAGE_SIZES.get(table, 1000), "with_deleted": "true"}
-            if table not in UNSORTABLE_TABLES:
-                params["sort_by"] = "created_at-asc"
-            if cursor:
-                params["cursor"] = cursor
-            page = self.get(path, params)
+            page = self.get(path, {**page_params, "cursor": cursor} if cursor else page_params)
             yield page
             cursor = page.get("next_cursor")
             if not cursor:
@@ -290,6 +294,37 @@ class TwitterAdsClient:
 
     def entities(self, account_id: str, table: str) -> list[dict[str, Any]]:
         return [row for page in self.pages(f"accounts/{quote(account_id, safe='')}/{table}") for row in page["data"]]
+
+    def targeting_criteria(
+        self, account_path: str, manager: ResumableSourceManager[TwitterAdsResumeConfig], state: TwitterAdsResumeConfig
+    ) -> Iterator[list[dict[str, Any]]]:
+        def batch(
+            line_item_ids: str, line_items_cursor: str | None, cursor: str | None = None
+        ) -> Iterator[list[dict[str, Any]]]:
+            for page in self.pages(
+                f"{account_path}/targeting_criteria", cursor, params={"line_item_ids": line_item_ids}
+            ):
+                next_cursor = page.get("next_cursor")
+                manager.save_state(
+                    TwitterAdsResumeConfig(
+                        cursor=next_cursor,
+                        line_items_cursor=line_items_cursor,
+                        line_item_ids=line_item_ids if next_cursor else None,
+                        complete=not next_cursor and not line_items_cursor,
+                    )
+                )
+                yield page["data"]
+
+        if state.line_item_ids:
+            yield from batch(state.line_item_ids, state.line_items_cursor, state.cursor)
+            if not state.line_items_cursor:
+                return
+
+        for page in self.pages(
+            f"{account_path}/line_items", state.line_items_cursor, params={"count": TARGETING_CRITERIA_LINE_ITEM_LIMIT}
+        ):
+            if page["data"]:
+                yield from batch(",".join(row["id"] for row in page["data"]), page.get("next_cursor"))
 
     def stats_pages(
         self,
@@ -491,15 +526,26 @@ def twitter_ads_source(
         state = manager.load_state() or TwitterAdsResumeConfig()
         if state.complete:
             return
+        account_path = f"accounts/{quote(account_id, safe='')}"
         if table in STATS_TABLES:
             yield from client.stats(
                 account_id, table, manager, state, incremental_since, logger, include_video_and_conversions
             )
+        elif table == "targeting_criteria":
+            yield from client.targeting_criteria(account_path, manager, state)
         else:
-            for page in client.pages(f"accounts/{quote(account_id, safe='')}/{table}", state.cursor):
+            pages = (
+                client.pages("accounts", state.cursor, params={"account_ids": account_id})
+                if table == "accounts"
+                else client.pages(f"{account_path}/{table}", state.cursor)
+            )
+            for page in pages:
                 cursor = page.get("next_cursor")
                 manager.save_state(TwitterAdsResumeConfig(cursor=cursor, complete=not cursor))
-                yield page["data"]
+                rows = page["data"]
+                if table == "accounts":
+                    rows = [row for row in rows if row["id"] == account_id]
+                yield rows
 
     return SourceResponse(
         name=table,

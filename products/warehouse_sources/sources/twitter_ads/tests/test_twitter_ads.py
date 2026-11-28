@@ -69,7 +69,8 @@ def request_url(request: requests.PreparedRequest) -> str:
     return request.url
 
 
-def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicMock) -> None:
+@pytest.mark.parametrize("table", ["campaigns", "promoted_accounts"])
+def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicMock, table: str) -> None:
     with patch.object(
         client.session,
         "send",
@@ -78,11 +79,12 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
             response({"data": [{"id": "two", "deleted": True}], "next_cursor": None}),
         ],
     ) as send:
-        resource = twitter_ads_source(client, "account", "campaigns", manager, None, MagicMock())
+        resource = twitter_ads_source(client, "account", table, manager, None, MagicMock())
         assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
     requests_sent = [call.args[0] for call in send.call_args_list]
     assert isinstance(client.session.auth, OAuth1)
     assert all(b"oauth_signature=" in request.headers["Authorization"] for request in requests_sent)
+    assert all(urlparse(request_url(request)).path == f"/12/accounts/account/{table}" for request in requests_sent)
     assert all(parse_qs(urlparse(request_url(request)).query)["with_deleted"] == ["true"] for request in requests_sent)
     assert parse_qs(urlparse(request_url(requests_sent[1])).query)["cursor"] == ["next-page"]
     assert manager.save_state.call_args_list[0].args[0] == TwitterAdsResumeConfig(cursor="next-page")
@@ -95,6 +97,18 @@ def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicM
     with patch.object(client.session, "send") as send:
         assert list(sync_items(resource)) == []
     send.assert_not_called()
+
+
+def test_accounts_sync_imports_only_the_selected_account(client: TwitterAdsClient, manager: MagicMock) -> None:
+    account = {"id": "selected", "timezone": "America/New_York"}
+    with patch.object(
+        client.session, "send", return_value=response({"data": [account, {"id": "other"}], "next_cursor": None})
+    ) as send:
+        resource = twitter_ads_source(client, "selected", "accounts", manager, None, MagicMock())
+        assert list(sync_items(resource)) == [[account]]
+    url = urlparse(request_url(send.call_args.args[0]))
+    assert url.path == "/12/accounts"
+    assert parse_qs(url.query)["account_ids"] == ["selected"]
 
 
 @pytest.mark.parametrize(
@@ -320,6 +334,60 @@ def stats_source() -> Iterator[TwitterAdsSource]:
 @pytest.fixture
 def stats_driver(stats_source: TwitterAdsSource) -> SourceDriver:
     return SourceDriver(stats_source, TwitterAdsSourceConfig(account_id="account", twitter_ads_integration_id=1))
+
+
+def test_targeting_criteria_resumes_with_the_same_line_item_ids(stats_driver: SourceDriver) -> None:
+    first_batch = [{"id": f"line-{index}"} for index in range(200)]
+    first_batch_ids = ",".join(row["id"] for row in first_batch)
+    line_items_path = "/12/accounts/account/line_items"
+    criteria_path = "/12/accounts/account/targeting_criteria"
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        cursor = request.param("cursor")
+        if request.path == line_items_path:
+            assert request.param("count") == "200"
+            if cursor is None:
+                return ScriptedResponse(json={"data": first_batch, "next_cursor": "next-line-items"})
+            assert cursor == "next-line-items"
+            return ScriptedResponse(json={"data": [{"id": "last-line"}]})
+        assert request.path == criteria_path
+        line_item_ids = request.param("line_item_ids")
+        assert request.param("with_deleted") == "true"
+        assert request.param("sort_by") is None
+        if line_item_ids == first_batch_ids:
+            if cursor is None:
+                return ScriptedResponse(json={"data": [{"id": "first"}], "next_cursor": "next-criteria"})
+            assert cursor == "next-criteria"
+            return ScriptedResponse(json={"data": [{"id": "second", "deleted": True}]})
+        assert line_item_ids == "last-line"
+        if cursor is None:
+            return ScriptedResponse(json={"data": [{"id": "third"}], "next_cursor": "last-criteria"})
+        assert cursor == "last-criteria"
+        return ScriptedResponse(json={"data": [{"id": "last"}]})
+
+    result = stats_driver.run("targeting_criteria", answer)
+    assert result.raised is None
+    assert result.paths == [
+        line_items_path,
+        criteria_path,
+        criteria_path,
+        line_items_path,
+        criteria_path,
+        criteria_path,
+    ]
+    assert [row["id"] for row in result.rows] == ["first", "second", "third", "last"]
+
+    for checkpoint_index, expected_paths in enumerate(
+        (
+            [criteria_path, line_items_path, criteria_path, criteria_path],
+            [line_items_path, criteria_path, criteria_path],
+            [criteria_path],
+        )
+    ):
+        resumed = stats_driver.run("targeting_criteria", answer, resume_state=result.committed_states[checkpoint_index])
+        assert resumed.raised is None
+        assert resumed.paths == expected_paths
+        assert resumed.rows == result.rows[checkpoint_index + 1 :]
 
 
 def stats_metadata(request: RecordedRequest, timezone: str) -> ScriptedResponse | None:

@@ -15463,7 +15463,7 @@ Not built: `Posts analytics` accepts only user-context tokens, and this source u
 
 ## TwitterAds — gaps
 
-Today (8): `campaign_stats`, `campaigns`, `funding_instruments`, `lead_forms`, `line_item_stats`, `line_items`, `media_creatives`, `promoted_tweets`
+Today (11): `accounts`, `campaign_stats`, `campaigns`, `funding_instruments`, `lead_forms`, `line_item_stats`, `line_items`, `media_creatives`, `promoted_accounts`, `promoted_tweets`, `targeting_criteria`
 
 Diffed against: <https://docs.x.com/x-ads-api/lead-generation/reference>
 
@@ -15473,10 +15473,10 @@ Note: Added from the X API changelog entry for the Lead Generation API, not from
 
 Re-audited 2026-11-19 against: <https://docs.x.com/x-ads-api/campaign-management/reference.md>
 
-- [ ] `Targeting criteria (GET /12/accounts/{account_id}/targeting_criteria)` — Targeting rules attached to line items we already sync: locations, interests, keywords, followers (high)
-- [ ] `Account history (GET /12/accounts/{account_id}/account_history)` — Change log of edits to campaigns, line items and creatives, state history for entities we sync (high)
-- [ ] `Promoted accounts (GET /12/accounts/{account_id}/promoted_accounts)` — Promoted account objects attached to line items, a creative type missing next to promoted tweets (medium)
-- [ ] `Accounts (GET /12/accounts)` — Ad accounts the token can reach, with name, currency and timezone, lookup for account_id on every table (medium)
+- [x] `Targeting criteria (GET /12/accounts/{account_id}/targeting_criteria)` — Targeting rules for the selected ad account's line items (high)
+- [ ] `Account history (GET /12/accounts/{account_id}/account_history)` — Skipped because X restricts this beta endpoint to allowlisted apps. It requires a separate request for each entity (high)
+- [x] `Promoted accounts (GET /12/accounts/{account_id}/promoted_accounts)` — X user accounts that line items promote (medium)
+- [x] `Accounts (GET /12/accounts)` — Name and time zone of the selected ad account (medium)
 - [ ] `Tweets (GET /12/accounts/{account_id}/tweets)` — Tweet text and metadata for promoted and organic tweets, resolves tweet ids on promoted_tweets (medium)
 - [ ] `Custom audiences (GET /12/accounts/{account_id}/custom_audiences)` — Audience definitions and sizes used for targeting (medium)
 - [ ] `Scheduled promoted tweets (GET /12/accounts/{account_id}/scheduled_promoted_tweets)` — Promoted tweets queued for later, a pending creative state (low)
