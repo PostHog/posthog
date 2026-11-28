@@ -11,13 +11,17 @@ from typing import TYPE_CHECKING
 from django.db import transaction
 from django.utils import timezone
 
+from products.warehouse_sources.backend.models.external_data_job import COMPANION_OF_KEY
+
 if TYPE_CHECKING:
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 
 # On the schema's own job row: the companion job ids this run opened, so the listing proof can
 # check them by primary key rather than by an unindexed JSON predicate over the schema's history.
 COMPANION_JOB_IDS_KEY = "cdc_companion_job_ids"
-COMPANION_OF_KEY = "companion_of"
+# On a snapshot job's row: the job that bills the rows it seeded into the history table.
+HISTORY_SEED_JOB_KEY = "history_seed_job_id"
 COMPANION_RUN_SUFFIX = "-cdc"
 
 COMPANION_RETIRED_ERROR = "Extraction ended before this table's changes were written"
@@ -80,16 +84,41 @@ def companions_completed(companion_job_ids: list[str]) -> bool:
     )
 
 
-def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
-    """Whether the run of this job, or of the job it is a companion of, completed on every table it writes."""
+def _run_parent(job_id: str, team_id: int) -> ExternalDataJob:
+    """The schema's own job of the run this job belongs to."""
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 
     job = ExternalDataJob.objects.get(id=job_id, team_id=team_id)
     parent_id = (job.schema_snapshot or {}).get(COMPANION_OF_KEY)
-    parent = ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+    return ExternalDataJob.objects.get(id=parent_id, team_id=team_id) if parent_id else job
+
+
+def run_completed_on_every_table(job_id: str, team_id: int) -> bool:
+    """Whether the run of this job, or of the job it is a companion of, completed on every table it writes."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    parent = _run_parent(job_id, team_id)
     return parent.status == ExternalDataJob.Status.COMPLETED and companions_completed(
         (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
     )
+
+
+def writes_several_tables(job: ExternalDataJob) -> bool:
+    """Whether this job's run writes more than one table, as the schema's own job or as a companion of it."""
+    snapshot = job.schema_snapshot or {}
+    return bool(snapshot.get(COMPANION_JOB_IDS_KEY) or snapshot.get(COMPANION_OF_KEY))
+
+
+def run_ended_on_every_table(job_id: str, team_id: int) -> bool:
+    """Whether the run of this job, or of the job it is a companion of, has stopped on every table it writes,
+    completed or failed."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    parent = _run_parent(job_id, team_id)
+    if parent.status == ExternalDataJob.Status.RUNNING:
+        return False
+    companion_ids = (parent.schema_snapshot or {}).get(COMPANION_JOB_IDS_KEY) or []
+    return not ExternalDataJob.objects.filter(id__in=companion_ids, status=ExternalDataJob.Status.RUNNING).exists()
 
 
 def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str, *, first_of_attempt: bool) -> None:
@@ -110,3 +139,52 @@ def record_companion_job(parent_job_id: str, team_id: int, companion_job_id: str
         earlier = [] if first_of_attempt else snapshot.get(COMPANION_JOB_IDS_KEY, [])
         snapshot[COMPANION_JOB_IDS_KEY] = [*earlier, companion_job_id]
         ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)
+
+
+def record_history_seed_job(parent: ExternalDataJob, schema: ExternalDataSchema, rows: int) -> None:
+    """Open a job for the rows a snapshot seeded into the history table, completed only with the snapshot job.
+
+    Not on the snapshot job: that job's rows bill once per destination, and the history table reaches
+    only the warehouse. Left Running when the snapshot fails, so it never bills, and the next buffered
+    run retires it with the other orphaned companions.
+    """
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.load_resolution import SCD2_APPEND_MODE
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (
+        _build_schema_snapshot,
+    )
+
+    with transaction.atomic():
+        seed = ExternalDataJob.objects.create(
+            team_id=parent.team_id,
+            pipeline_id=parent.pipeline_id,
+            schema_id=parent.schema_id,
+            status=ExternalDataJob.Status.RUNNING,
+            rows_synced=rows,
+            workflow_id=parent.workflow_id,
+            workflow_run_id=None,
+            pipeline_version=parent.pipeline_version,
+            billable=parent.billable is not False,
+            schema_snapshot={
+                **_build_schema_snapshot(schema),
+                "cdc_write_mode": SCD2_APPEND_MODE,
+                COMPANION_OF_KEY: str(parent.id),
+            },
+            destination_ids=[],
+        )
+        # Under the row lock, like every writer of this snapshot.
+        locked = ExternalDataJob.objects.select_for_update().get(id=parent.id, team_id=parent.team_id)
+        snapshot = {**(locked.schema_snapshot or {}), HISTORY_SEED_JOB_KEY: str(seed.id)}
+        ExternalDataJob.objects.filter(id=parent.id).update(schema_snapshot=snapshot)
+
+
+def complete_history_seed_job(parent: ExternalDataJob) -> None:
+    """Complete the seed job a snapshot opened, now that the snapshot job completed. A no-op when run again."""
+    from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+
+    seed_id = (parent.schema_snapshot or {}).get(HISTORY_SEED_JOB_KEY)
+    if not seed_id:
+        return
+    ExternalDataJob.objects.filter(id=seed_id, team_id=parent.team_id, status=ExternalDataJob.Status.RUNNING).update(
+        status=ExternalDataJob.Status.COMPLETED, finished_at=timezone.now()
+    )

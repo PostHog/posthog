@@ -243,13 +243,23 @@ class TestDataWarehouseAPI(APIBaseTest):
             finished_at=timezone.now(),
         )
 
-        ExternalDataJob.objects.create(
+        failed = ExternalDataJob.objects.create(
             pipeline_id=source.pk,
             schema=schema,
             team=self.team,
             status=ExternalDataJob.Status.FAILED,
             rows_synced=0,
             finished_at=timezone.now(),
+        )
+        # A billed history table's job belongs to its run, so it adds no run of its own.
+        ExternalDataJob.objects.create(
+            pipeline_id=source.pk,
+            schema=schema,
+            team=self.team,
+            status=ExternalDataJob.Status.COMPLETED,
+            rows_synced=40,
+            finished_at=timezone.now(),
+            schema_snapshot={"companion_of": str(failed.id)},
         )
 
         DataModelingJob.objects.create(team=self.team, status=DataModelingJob.Status.COMPLETED, rows_materialized=50)

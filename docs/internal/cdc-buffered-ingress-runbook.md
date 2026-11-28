@@ -299,10 +299,11 @@ a retry-heavy period is the signal to revisit. Candidate fixes are costed in the
 
 Consume runs are ordinary jobs: `billable=True`, `rows_synced` = consumed rows.
 
-**One read of the change stream bills once, whatever it feeds.** A run counts one table's rows
-towards usage: the `_cdc` table for `cdc_only`, and the consolidated table for `consolidated` and
-`both`. So `both` bills the same as `consolidated`, and keeping a history table alongside the merged
-one costs nothing extra.
+**Each table bills its own rows.** `consolidated` bills the consolidated table and `cdc_only` bills the history table.
+`both` bills the consolidated table, and bills the history table too once the organization has the `dwh-bill-history-tables` flag; without the flag the history table is free.
+The history rows bill on the history table's companion job, not the run's own job: it has no destinations, so they count once, and only when that table loads.
+With the flag, the snapshot's seed of a `both` history table also bills, on a completed companion job of its own.
+`history_billing.history_lane_billable` holds the rule for every kind of history table.
 
 **The merge lane re-bills the rows at its position until the file holding them is deleted.** It
 keeps every row at its position deliberately, since dropping one would lose a later event for the

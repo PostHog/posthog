@@ -206,7 +206,9 @@ async def _seed_cdc_companion_from_snapshot(
         DELETED_COLUMN,
         companion_resource_name as build_companion_resource_name,
     )
+    from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs import record_history_seed_job
     from products.warehouse_sources.backend.temporal.data_imports.cdc.history_table import history_naming
+    from products.warehouse_sources.backend.temporal.data_imports.history_billing import history_seed_billable
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.scd2 import Scd2DeltaWriter
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
     from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.writer import DeltaWriter
@@ -302,6 +304,10 @@ async def _seed_cdc_companion_from_snapshot(
 
     if total_rows == 0:
         return
+
+    # The snapshot job bills the main table. Beside it, the history table bills its seed as a table of its own.
+    if await database_sync_to_async_pool(history_seed_billable)(schema):
+        await database_sync_to_async_pool(record_history_seed_job)(job, schema, total_rows)
 
     await run_post_load_operations(
         job=job,

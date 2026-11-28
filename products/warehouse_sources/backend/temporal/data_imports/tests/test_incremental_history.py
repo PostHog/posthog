@@ -55,6 +55,7 @@ def _response(primary_keys: list[str] | None = None) -> SourceResponse:
 
 
 _MODULE = "products.warehouse_sources.backend.temporal.data_imports.incremental_history"
+_BILLING_MODULE = "products.warehouse_sources.backend.temporal.data_imports.history_billing"
 
 
 @pytest.fixture(autouse=True)
@@ -63,26 +64,48 @@ def _flag_on():
         yield flag
 
 
-def _attach(schema: ExternalDataSchema, response: SourceResponse, *, destination_ids: list[str] | None = None) -> None:
-    with patch(f"{_MODULE}.incremental_history_naming", return_value=HISTORY_NAMING):
+def _attach(
+    schema: ExternalDataSchema,
+    response: SourceResponse,
+    *,
+    destination_ids: list[str] | None = None,
+    bills_history: bool = False,
+) -> None:
+    with (
+        patch(f"{_MODULE}.incremental_history_naming", return_value=HISTORY_NAMING),
+        patch(f"{_BILLING_MODULE}.feature_enabled_or_false", return_value=bills_history),
+    ):
         attach_history_lanes(schema, response, destination_ids=destination_ids or [])
 
 
 class TestAttachHistoryLanes:
     @parameterized.expand(
         [
-            ("both", "both", True, [("orders", None, True), ("orders_history", "scd2_append", False)]),
-            ("history_only", "cdc_only", True, [("orders_history", "scd2_append", True)]),
+            ("both", "both", True, False, [("orders", None, True), ("orders_history", "scd2_append", False)]),
+            (
+                "both_billing_history",
+                "both",
+                True,
+                True,
+                [("orders", None, True), ("orders_history", "scd2_append", True)],
+            ),
+            ("history_only", "cdc_only", True, False, [("orders_history", "scd2_append", True)]),
+            ("history_only_billing_history", "cdc_only", True, True, [("orders_history", "scd2_append", True)]),
             # A schema that left CDC keeps its mode but never chose history here.
-            ("mode_left_from_cdc", "both", False, None),
+            ("mode_left_from_cdc", "both", False, True, None),
         ]
     )
     def test_lanes_follow_the_output_tables(
-        self, _name: str, mode: str, chose_history: bool, expected: list[tuple[str, str | None, bool]] | None
+        self,
+        _name: str,
+        mode: str,
+        chose_history: bool,
+        bills_history: bool,
+        expected: list[tuple[str, str | None, bool]] | None,
     ) -> None:
         response = _response()
 
-        _attach(_schema(mode, chose_history=chose_history), response)
+        _attach(_schema(mode, chose_history=chose_history), response, bills_history=bills_history)
 
         lanes = [(lane.name, lane.cdc_write_mode, lane.billable) for lane in response.lanes] if response.lanes else None
         assert lanes == expected

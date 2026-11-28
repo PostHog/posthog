@@ -30,6 +30,7 @@ from products.warehouse_sources.backend.models.external_data_destination import 
     resolve_destinations,
 )
 from products.warehouse_sources.backend.models.external_data_job import (
+    COMPANION_OF_KEY,
     ExternalDataJob,
     get_latest_run_if_exists,
     latest_completed_job_prefetch,
@@ -101,6 +102,7 @@ from products.warehouse_sources.backend.models.util import (
 )
 
 __all__ = [
+    "COMPANION_OF_KEY",
     "DataWarehouseCredential",
     "DataWarehouseTable",
     "DataWarehouseTableColumns",
