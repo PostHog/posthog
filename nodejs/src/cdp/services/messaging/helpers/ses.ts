@@ -268,12 +268,15 @@ const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolve
 type RecordedClickLink = { eventUrl: string; perLinkUrl: string }
 
 const recordedClickLink = (isSensitive: boolean, link: string): RecordedClickLink => {
-    const destination = resolveClickDestination(link)
-    if (isSensitive || carriesPreferencesToken(link)) {
-        const origin = sensitiveLinkOrigin(destination)
+    if (isSensitive) {
+        const origin = sensitiveClickLink(link)
         return { eventUrl: origin, perLinkUrl: origin }
     }
-    return { eventUrl: destination, perLinkUrl: normalizeClickUrl(destination) }
+    const destination = resolveClickDestination(link)
+    return {
+        eventUrl: carriesPreferencesToken(link) ? sensitiveClickLink(link) : destination,
+        perLinkUrl: normalizeClickUrl(destination),
+    }
 }
 
 type LooseSesRecord = {

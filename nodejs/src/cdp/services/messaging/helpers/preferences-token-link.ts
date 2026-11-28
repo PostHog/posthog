@@ -72,10 +72,10 @@ const isPreferencesPayload = (segment: number[]): boolean => {
     }
 }
 
-const runHoldsPreferencesJwt = (segments: number[][]): boolean => {
-    for (let index = 1; index < segments.length - 1; index++) {
-        const [header, payload, signature] = segments.slice(index - 1, index + 2)
-        if (header.length && payload.length && signature.length && isPreferencesPayload(payload)) {
+const runHoldsSignedPreferencesPayload = (segments: number[][]): boolean => {
+    for (let index = 0; index < segments.length - 1; index++) {
+        const [payload, signature] = segments.slice(index, index + 2)
+        if (payload.length && signature.length && isPreferencesPayload(payload)) {
             return true
         }
     }
@@ -90,7 +90,7 @@ export const carriesPreferencesToken = (link: string): boolean => {
         } else if (code === DOT) {
             segments.push([])
         } else {
-            if (runHoldsPreferencesJwt(segments)) {
+            if (runHoldsSignedPreferencesPayload(segments)) {
                 return true
             }
             segments = [[]]
