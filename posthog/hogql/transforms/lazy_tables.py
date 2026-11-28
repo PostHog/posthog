@@ -652,7 +652,10 @@ class LazyTableResolver(TraversingVisitor):
         joins_to_add: dict[str, LazyJoinToAdd] = {}
         tables_to_add: dict[str, LazyTableToAdd] = {}
         # Field types retain the original tables after the scope replaces them with subqueries.
-        original_select_type = ast.SelectQueryType(tables=dict(select_type.tables))
+        # Both types share one alias map, so that they give each lazy join the same alias.
+        original_select_type = ast.SelectQueryType(
+            tables=dict(select_type.tables), lazy_join_aliases=select_type.lazy_join_alias_map()
+        )
 
         # Virtual-table fields take their own export name, which must not equal the name of any other export.
         export_names: dict[int, str] = {}
