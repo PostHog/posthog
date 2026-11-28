@@ -5,6 +5,7 @@ from typing import Any
 import pytest
 import time_machine
 
+from products.warehouse_sources.sources.sdk import SourceCursorManager
 from products.warehouse_sources.sources.sdk.testing import (
     RecordedRequest,
     ScriptedResponse,
@@ -212,13 +213,15 @@ def test_balances_request_both_balance_types_and_carry_the_profile_id() -> None:
 
 @time_machine.travel("2024-05-01T00:00:00Z", tick=False)
 def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> None:
-    transaction = {"referenceNumber": "TRANSFER-1", "date": "2024-04-30T00:00:00.000Z"}
+    transaction = {"referenceNumber": "TRANSFER-1", "date": "2024-04-30T00:00:00.000Z", "type": "DEBIT"}
     result = driver().run(
         "balance_statements",
         responder(
             {
                 ("/profiles", None): [ScriptedResponse(json=PROFILES)],
-                ("/profiles/101/balances", None): [ScriptedResponse(json=[STATEMENT_BALANCE])],
+                ("/profiles/101/balances", None): [
+                    ScriptedResponse(json=[{**STATEMENT_BALANCE, "creationTime": "2023-01-01T00:00:00.000Z"}])
+                ],
                 (STATEMENT_PATH, None): [
                     ScriptedResponse(json={"transactions": []}),
                     ScriptedResponse(json={"transactions": [transaction]}),
@@ -234,14 +237,14 @@ def test_balance_statements_walk_past_empty_windows_and_keep_balance_keys() -> N
     )
 
     assert result.raised is None
-    assert result.committed_states[0].paginator_state["next_intervals"][STATEMENT_PATH]["start"] == (
+    assert result.committed_states[0].statement["next_intervals"][STATEMENT_PATH]["start"] == (
         "2024-04-13T23:59:59.999000+00:00"
     )
     statement_requests = [request for request in result.requests if request.path.endswith("/statement.json")]
     assert [request.param("currency") for request in statement_requests] == ["EUR", "EUR", "GBP"]
     assert [request.param("type") for request in statement_requests] == ["COMPACT"] * 3
     assert [request.param("intervalStart") for request in statement_requests] == [
-        "2024-03-15T00:00:00.000Z",
+        "2023-01-01T00:00:00.000Z",
         "2024-04-13T23:59:59.999Z",
         "2024-04-30T00:00:00.000Z",
     ]
@@ -280,7 +283,7 @@ def test_balance_statements_can_stop_after_a_profile_with_no_balances() -> None:
     [
         pytest.param(
             ScriptedResponse(
-                body=gzip.compress(b'{"transactions":[],"padding":"' + b"x" * 1024 + b'"}'),
+                body=gzip.compress(b'{"transactions":[],"padding":"' + b"x" * (256 * 1024) + b'"}'),
                 headers={"Content-Encoding": "gzip"},
             ),
             id="decoded-body-over-limit",
@@ -294,8 +297,9 @@ def test_oversized_statement_window_splits_without_losing_or_repeating_rows(
 ) -> None:
     monkeypatch.setattr(wise, "MAX_STATEMENT_BYTES", 512)
     balance = {**STATEMENT_BALANCE, "creationTime": "2024-04-01T00:00:00.000Z"}
-    boundary = {"referenceNumber": "TRANSFER-1", "date": "2024-04-16T00:00:00.000Z"}
-    later = {"referenceNumber": "TRANSFER-2", "date": "2024-04-17T00:00:00.000Z"}
+    boundary = {"referenceNumber": "TRANSFER-1", "date": "2024-04-16T00:00:00.000Z", "type": "DEBIT"}
+    credit = {**boundary, "type": "CREDIT"}
+    later = {**boundary, "date": "2024-04-17T00:00:00.000Z"}
     result = driver().run(
         "balance_statements",
         [
@@ -303,7 +307,8 @@ def test_oversized_statement_window_splits_without_losing_or_repeating_rows(
             ScriptedResponse(json=[balance]),
             oversized,
             ScriptedResponse(json={"transactions": [boundary]}),
-            ScriptedResponse(json={"transactions": [boundary, later]}),
+            ScriptedResponse(json={"transactions": [boundary, credit, later]}),
+            ScriptedResponse(json={"transactions": []}),
         ],
     )
 
@@ -312,16 +317,18 @@ def test_oversized_statement_window_splits_without_losing_or_repeating_rows(
         "2024-04-01T00:00:00.000Z",
         "2024-04-01T00:00:00.000Z",
         "2024-04-15T23:59:59.999Z",
+        "2024-04-30T23:59:59.998Z",
     ]
     assert result.params("intervalEnd")[2:] == [
         "2024-05-01T00:00:00.000Z",
         "2024-04-16T00:00:00.000Z",
+        "2024-04-30T23:59:59.999Z",
         "2024-05-01T00:00:00.000Z",
     ]
-    assert result.committed_states[0].paginator_state["next_intervals"][STATEMENT_PATH]["start"] == (
+    assert result.committed_states[0].statement["next_intervals"][STATEMENT_PATH]["start"] == (
         "2024-04-15T23:59:59.999000+00:00"
     )
-    assert result.rows == [{**row, "profileId": 101, "balanceId": 1} for row in (boundary, later)]
+    assert result.rows == [{**row, "profileId": 101, "balanceId": 1} for row in (boundary, credit, later)]
 
 
 @time_machine.travel("2024-05-01T00:00:00Z", tick=False)
@@ -340,39 +347,68 @@ def test_oversized_statement_at_minimum_window_does_not_advance() -> None:
 
 
 @pytest.mark.parametrize(
-    "created,expected_start",
+    "shifted,unshifted,expected_start",
     [
-        ("2024-04-01T00:00:00.000Z", "2024-04-15T00:00:00.000Z"),
-        ("2024-04-25T00:00:00.000Z", "2024-04-25T00:00:00.000Z"),
+        (None, None, "2024-04-13T00:00:00.000Z"),
+        ("2024-04-15T00:00:00Z", "2024-04-17T00:00:00Z", "2024-04-18T00:00:00.000Z"),
+        ("2024-04-17T00:00:00Z", "2024-04-17T00:00:00Z", "2024-04-20T00:00:00.000Z"),
     ],
 )
-@time_machine.travel("2024-05-01T00:00:00Z", tick=False)
-def test_balance_statements_start_at_the_watermark_or_balance_creation(created: str, expected_start: str) -> None:
-    result = driver().run(
-        "balance_statements",
-        responder(
-            {
-                ("/profiles", None): [ScriptedResponse(json=PROFILES[:1])],
-                ("/profiles/101/balances", None): [
-                    ScriptedResponse(json=[{**STATEMENT_BALANCE, "creationTime": created}])
-                ],
-                (STATEMENT_PATH, None): [ScriptedResponse(json={"transactions": []})],
-            }
-        ),
-        incremental_field="date",
-        db_incremental_field_last_value="2024-04-15T00:00:00.000Z",
-    )
+def test_balance_statements_use_each_balances_own_history(
+    shifted: str | None, unshifted: str | None, expected_start: str
+) -> None:
+    source = WiseSource()
+    inputs = source_inputs("balance_statements")
+    first_cursor = SourceCursorManager.from_sync_type_config(source, None, inputs.logger)
+    with time_machine.travel("2024-04-20T00:00:00Z", tick=False):
+        first = driver().run(
+            "balance_statements",
+            [
+                ScriptedResponse(json=PROFILES[:1]),
+                ScriptedResponse(json=[STATEMENT_BALANCE]),
+                ScriptedResponse(json={"transactions": []}),
+            ],
+            incremental_field="date",
+            source_cursor=first_cursor,
+        )
+    assert first.raised is None
+    payload = first_cursor.staged_payload()
+    assert payload is not None
+    next_cursor = SourceCursorManager.from_sync_type_config(source, {"source_cursor": payload}, inputs.logger)
+    discovered = {**STATEMENT_BALANCE, "id": 2, "creationTime": "2024-03-01T00:00:00.000Z"}
+    transaction = {"referenceNumber": "TRANSFER-1", "date": "2024-03-02T00:00:00.000Z", "type": "CREDIT"}
+    with time_machine.travel("2024-05-01T00:00:00Z", tick=False):
+        result = driver().run(
+            "balance_statements",
+            [
+                ScriptedResponse(json=PROFILES[:1]),
+                ScriptedResponse(json=[STATEMENT_BALANCE, discovered]),
+                ScriptedResponse(json={"transactions": []}),
+                ScriptedResponse(json={"transactions": [transaction]}),
+            ],
+            incremental_field="date",
+            db_incremental_field_last_value=shifted,
+            db_incremental_field_last_value_before_lookback=unshifted,
+            source_cursor=next_cursor,
+        )
 
     assert result.raised is None
-    assert result.params("intervalStart") == [None, None, expected_start]
+    assert result.params("intervalStart") == [None, None, expected_start, "2024-03-01T00:00:00.000Z"]
+    assert result.rows == [{**transaction, "profileId": 101, "balanceId": 2}]
+
+
+@pytest.mark.parametrize("status,expected", [(401, INVALID_TOKEN_MESSAGE), (403, FORBIDDEN_MESSAGE)])
+def test_balance_statement_permissions_distinguish_balance_list_denial(status: int, expected: str) -> None:
+    with scripted_network([ScriptedResponse(json=PROFILES[:1]), ScriptedResponse(status=status)]):
+        assert get_endpoint_permissions("wise-token", ["balance_statements"]) == {"balance_statements": expected}
 
 
 def test_balance_statements_resume_at_the_next_window_with_the_original_end() -> None:
     balances = [
         {**STATEMENT_BALANCE, "id": 2, "creationTime": "2024-04-01T00:00:00.000Z"},
-        STATEMENT_BALANCE,
+        {**STATEMENT_BALANCE, "creationTime": "2023-01-01T00:00:00.000Z"},
     ]
-    boundary = {"referenceNumber": "TRANSFER-1", "date": "2024-04-14T00:00:00.000Z"}
+    boundary = {"referenceNumber": "TRANSFER-1", "date": "2024-04-14T00:00:00.000Z", "type": "DEBIT"}
     with time_machine.travel("2024-05-01T00:00:00Z", tick=False):
         first = driver().run(
             "balance_statements",
@@ -393,7 +429,7 @@ def test_balance_statements_resume_at_the_next_window_with_the_original_end() ->
 
     assert first.raised is not None
     assert [row["balanceId"] for row in first.rows] == [2, 1]
-    later = {"referenceNumber": "TRANSFER-2", "date": "2024-04-15T00:00:00.000Z"}
+    later = {**boundary, "date": "2024-04-15T00:00:00.000Z", "type": "CREDIT"}
     with time_machine.travel("2024-05-02T00:00:00Z", tick=False):
         resumed = driver().run(
             "balance_statements",

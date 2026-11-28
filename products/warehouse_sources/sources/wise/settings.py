@@ -61,7 +61,7 @@ ENDPOINTS: dict[str, WiseEndpoint] = {
     BALANCE_STATEMENTS: WiseEndpoint(
         name=BALANCE_STATEMENTS,
         path="/profiles/{profile_id}/balance-statements/{balance_id}/statement.json",
-        primary_keys=("profileId", "balanceId", "referenceNumber"),
+        primary_keys=("profileId", "balanceId", "referenceNumber", "date", "type"),
         data_selector="transactions",
         params={"type": "COMPACT"},
         partition_key="date",

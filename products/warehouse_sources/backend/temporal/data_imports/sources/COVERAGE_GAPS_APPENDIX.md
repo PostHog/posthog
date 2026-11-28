@@ -16069,10 +16069,10 @@ Today (6): `activities`, `balance_statements`, `balances`, `profiles`, `recipien
 
 Diffed against: <https://docs.wise.com/api-reference/legacy.md>
 
-- [x] `Balance statement (GET /v1/profiles/{profileId}/balance-statements/{balanceId}/statement.json)` — `balance_statements` uses the `2026Q4` route to read up to 469 days per request (high)
-- [ ] `Cards (GET /v3/spend/profiles/{profileId}/cards)` — skipped: the `2026Q4` endpoint requires an OAuth user token (high)
-- [ ] `Card transactions (GET /v4/spend/profiles/{profileId}/cards/{cardToken}/transactions)` — skipped: the `2026Q4` endpoint requires an OAuth user token (high)
-- [ ] `Account details (GET /v1/profiles/{profileId}/account-details)` — skipped: `2026Q4` does not have the profile-wide list (medium)
+- [x] `Balance statement (GET /v1/profiles/{profileId}/balance-statements/{balanceId}/statement.json)` — per-balance ledger of every credit and debit with running balance, the base for reconciliation; fan-out over profiles and balances, needs intervalStart and intervalEnd (high). Shipped as `balance_statements` on the `2026Q4` route. Starts with up to 469 days per request and reduces the window when a response is too large.
+- [ ] `Cards (GET /v3/spend/profiles/{profileId}/cards)` — issued cards per profile with status and type; parent for card transactions (high). Skipped because the `2026Q4` endpoint requires an OAuth user token.
+- [ ] `Card transactions (GET /v4/spend/profiles/{profileId}/cards/{cardToken}/transactions)` — card spend by merchant, amount and status; fan-out over profiles and cards (high). Skipped because the `2026Q4` endpoint requires an OAuth user token.
+- [ ] `Account details (GET /v1/profiles/{profileId}/account-details)` — bank account details (IBAN, account numbers) assigned to each balance (medium). Skipped because `2026Q4` does not have the profile-wide list.
 - [ ] `Disputes (GET /v3/spend/profiles/{profileId}/disputes)` — card dispute cases and their status per profile (medium)
 - [ ] `Card orders (GET /v3/spend/profiles/{profileId}/card-orders)` — card ordering requests and their status per profile (low)
 - [ ] `Spend limits (GET /v4/spend/profiles/{profileId}/spend-limits)` — profile-level spend limits; a card-level variant exists under each card token (low)

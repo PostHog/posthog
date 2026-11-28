@@ -47,7 +47,7 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "columns": {
             "profileId": "ID of the profile that owns the balance.",
             "balanceId": "ID of the balance account for the statement.",
-            "referenceNumber": "Unique Wise transaction reference.",
+            "referenceNumber": "Wise transaction reference. Use it to link refunds to the original transfer.",
             "date": "Time when Wise created the transaction.",
             "type": "Direction of the transaction: DEBIT or CREDIT.",
             "amount": "Signed transaction amount and currency.",
