@@ -142,7 +142,20 @@ jobs:
                     trap 'rm -f "$MOBILE_OTA_SIGNING_KEY_PATH"' EXIT
                   fi
                   unset MOBILE_OTA_SIGNING_KEY
-                  node scripts/releases/release.mjs publish
+                  node scripts/releases/release.mjs publish --defer-finalization
+            - name: Get production pointer token
+              id: pointer-token
+              # Native builds can outlive an App token. Mint this after publication.
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_RELEASER_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_RELEASER_PRIVATE_KEY }}
+                  permission-contents: write
+                  permission-workflows: write
+            - name: Finalize the production pointer
+              env:
+                  GH_TOKEN: ${{ steps.pointer-token.outputs.token }}
+              run: node scripts/releases/release.mjs finalize
             - name: Preserve the release receipt
               if: always()
               uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
