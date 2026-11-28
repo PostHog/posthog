@@ -1,7 +1,0 @@
-# serializer version: 1
-# name: TestInstanceSettings.test_update_recordings_performance_events_ttl_setting
-  '''
-  /* user_id:0 request:_snapshot_ */
-  ALTER TABLE sharded_performance_events ON CLUSTER 'posthog' MODIFY TTL toDate(timestamp) + toIntervalWeek(5)
-  '''
-# ---

@@ -61,21 +61,21 @@ def test_override_constance_config(db):
 
 def test_can_retrieve_multiple_settings(db):
     set_instance_setting("MATERIALIZED_COLUMNS_ENABLED", True)
-    set_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT", 20000)
+    set_instance_setting("WEB_ANALYTICS_WARMING_DAYS", 20000)
 
     assert get_instance_setting("MATERIALIZED_COLUMNS_ENABLED") is True
-    assert get_instance_setting("ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT") == 20000
+    assert get_instance_setting("WEB_ANALYTICS_WARMING_DAYS") == 20000
 
     returned = get_instance_settings(
         [
             "MATERIALIZED_COLUMNS_ENABLED",
-            "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT",
+            "WEB_ANALYTICS_WARMING_DAYS",
             "ASYNC_MIGRATIONS_AUTO_CONTINUE",
         ]
     )
 
     assert returned == {
-        "ASYNC_MIGRATIONS_ROLLBACK_TIMEOUT": 20000,
+        "WEB_ANALYTICS_WARMING_DAYS": 20000,
         "MATERIALIZED_COLUMNS_ENABLED": True,
         "ASYNC_MIGRATIONS_AUTO_CONTINUE": True,
     }
