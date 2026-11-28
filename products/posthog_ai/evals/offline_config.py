@@ -125,6 +125,29 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         ),
         "skill_loaded": OfflineScorer(kind="boolean", version=UUID("01a1558f-a299-7e75-938e-07c2ff9c747f")),
         "surfaces_all_findings": OfflineScorer(kind="boolean", version=UUID("01a1558f-ad52-7b81-8a93-d7e602bf0125")),
+        "closing_question_with_options": OfflineScorer(
+            kind="boolean", version=UUID("01a18a1a-ac25-7edf-9a85-3e9265372f13")
+        ),
+        "code_changes_section": OfflineScorer(kind="boolean", version=UUID("01a18a1a-b405-7552-b711-2669347f62e4")),
+        "execute_sql_calls_before_create": OfflineScorer(
+            kind="numeric", version=UUID("01a18a1a-baef-7b89-9ad7-2440ce6068d5")
+        ),
+        "experiment_url_in_report": OfflineScorer(kind="boolean", version=UUID("01a18a1a-c255-7ace-b9bc-b29cc1fd4c9e")),
+        "flag_url_in_report": OfflineScorer(kind="boolean", version=UUID("01a18a1a-c9ae-7b08-b3cf-62cc5437e211")),
+        "low_traffic_note": OfflineScorer(kind="boolean", version=UUID("01a18a1a-d216-7876-bb71-dbdd431e63d5")),
+        "newcomer_primer_up_front": OfflineScorer(kind="boolean", version=UUID("01a18a1a-da04-7cd6-bed6-11d5e7cbf540")),
+        "next_experiment_suggestion": OfflineScorer(
+            kind="boolean", version=UUID("01a18a1a-e147-762c-a532-316208f3fa3f")
+        ),
+        "no_unavailable_tool_mention": OfflineScorer(
+            kind="boolean", version=UUID("01a18a1a-e95e-7338-a09c-7c4e5abde5d4")
+        ),
+        "no_unprompted_launch": OfflineScorer(kind="boolean", version=UUID("01a18a1a-f128-7e50-94d5-3dec411a42c0")),
+        "places_linked": OfflineScorer(kind="boolean", version=UUID("01a18a1a-f850-787f-a422-e7453c7c26bb")),
+        "reminder_linked_to_experiment": OfflineScorer(
+            kind="boolean", version=UUID("01a18a1b-018f-7e2f-8b26-b1fc5c1dc117")
+        ),
+        "runtime_with_traffic": OfflineScorer(kind="boolean", version=UUID("01a18a1b-06d9-7f8c-a1af-c254d7cba229")),
     },
     "product_analytics": {
         "answer_tool_call_not_forbidden": OfflineScorer(
