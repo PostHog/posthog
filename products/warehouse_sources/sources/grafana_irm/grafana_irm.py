@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.grafana_irm.settings import (
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     BearerTokenAuth,
+    ClientConfig,
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
@@ -26,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     reach_safe_point,
     rest_api_resource,
@@ -149,6 +151,18 @@ def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str
     return drop
 
 
+def _client_config(config: GrafanaIRMEndpointConfig, token: str, stack_url: str, oncall_api_url: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(config, stack_url, oncall_api_url),
+        "headers": _headers(config, stack_url),
+        "auth": {"type": "bearer", "token": token},
+        "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
 def _resource_config(
     config: GrafanaIRMEndpointConfig, token: str, stack_url: str, oncall_api_url: str
 ) -> RESTAPIConfig:
@@ -175,15 +189,7 @@ def _resource_config(
         resource["data_map"] = _drop_fields(config.dropped_fields)
 
     return {
-        "client": {
-            "base_url": _base_url(config, stack_url, oncall_api_url),
-            "headers": _headers(config, stack_url),
-            "auth": {"type": "bearer", "token": token},
-            "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-        },
+        "client": _client_config(config, token, stack_url, oncall_api_url),
         "resources": [resource],
     }
 
@@ -288,36 +294,11 @@ def _incident_membership_pages(client: RESTClient) -> Iterator[list[dict[str, An
                 reach_safe_point()
 
 
-def _final_schedule_shift_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
-    schedules = GRAFANA_IRM_ENDPOINTS["schedules"]
-    shifts = GRAFANA_IRM_ENDPOINTS["final_schedule_shifts"]
-    end = datetime.now(UTC).date()
-    params = {
-        "start_date": (end - timedelta(days=365)).isoformat(),
-        "end_date": end.isoformat(),
-        "perpage": ONCALL_PAGE_SIZE,
-    }
-
-    for schedule_page in client.paginate(
-        schedules.path,
-        params={"perpage": ONCALL_PAGE_SIZE},
-        paginator=_oncall_paginator(),
-        data_selector=schedules.data_selector,
-        data_selector_required=True,
-    ):
-        for schedule in schedule_page:
-            schedule_id = schedule.get("id")
-            if not schedule_id:
-                continue
-            for shift_page in client.paginate(
-                shifts.path.format(schedule_id=quote(schedule_id, safe="")),
-                params=params,
-                paginator=_oncall_paginator(),
-                data_selector=shifts.data_selector,
-                data_selector_required=True,
-            ):
-                if shift_page:
-                    yield [{**shift, "schedule_id": schedule_id} for shift in shift_page]
+def _encode_schedule_id(schedule: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    schedule_id = schedule.get("id")
+    if not schedule_id:
+        return []
+    return {**schedule, "encoded_schedule_id": quote(schedule_id, safe="")}
 
 
 def _incident_child_pages(client: RESTClient, child: GrafanaIRMEndpointConfig) -> Iterator[list[dict[str, Any]]]:
@@ -351,6 +332,8 @@ def _incident_child_pages(client: RESTClient, child: GrafanaIRMEndpointConfig) -
             ):
                 if child_page:
                     yield child_page
+                else:
+                    reach_safe_point()
 
 
 def grafana_irm_source(
@@ -365,6 +348,28 @@ def grafana_irm_source(
     config = GRAFANA_IRM_ENDPOINTS[endpoint]
     stack_url = normalize_stack_url(stack_url)
     oncall_api_url = normalize_oncall_api_url(oncall_api_url)
+
+    if config.fanout is not None:
+        end = datetime.now(UTC).date()
+        parent = GRAFANA_IRM_ENDPOINTS[config.fanout.parent_name]
+        resource = build_dependent_resource(
+            endpoint_configs=GRAFANA_IRM_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(config, token, stack_url, oncall_api_url),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param="perpage",
+            parent_data_map=_encode_schedule_id,
+            parent_endpoint_extra={"data_selector": parent.data_selector, "data_selector_required": True},
+            child_endpoint_extra={"data_selector": config.data_selector, "data_selector_required": True},
+            child_params_extra={"start_date": (end - timedelta(days=365)).isoformat(), "end_date": end.isoformat()},
+        )
+        return SourceResponse(
+            name=endpoint, items=lambda: resource, primary_keys=list(config.primary_keys), supports_resume=False
+        )
 
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key:
@@ -381,13 +386,13 @@ def grafana_irm_source(
         "incident_key_updates": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
         "incident_membership": lambda: _incident_membership_pages(_incident_client(token, stack_url)),
         "alerts": lambda: _alert_pages(_oncall_client(token, stack_url, oncall_api_url)),
-        "final_schedule_shifts": lambda: _final_schedule_shift_pages(_oncall_client(token, stack_url, oncall_api_url)),
     }
     if endpoint in fan_out_pages:
         return SourceResponse(
             name=endpoint,
             items=fan_out_pages[endpoint],
             primary_keys=list(config.primary_keys),
+            supports_resume=endpoint != "incident_key_updates",
             **partition_kwargs,
         )
 
@@ -454,7 +459,7 @@ def validate_credentials(
 
     if probe_oncall:
         # A fan-out child needs a parent ID, so probe its parent, which takes the same permission.
-        probe_name = (config.parent or config.name) if config is not None else "alert_groups"
+        probe_name = config.probe_name if config is not None else "alert_groups"
         oncall_path = GRAFANA_IRM_ENDPOINTS[probe_name].path
         status = _probe(
             session,

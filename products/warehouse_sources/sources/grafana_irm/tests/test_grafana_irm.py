@@ -1,3 +1,4 @@
+from collections.abc import Iterable
 from typing import Any, Optional
 
 import pytest
@@ -12,7 +13,16 @@ from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
     validate_credentials,
 )
 from products.warehouse_sources.sources.grafana_irm.source import GrafanaIRMSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.sdk import Resource
+from products.warehouse_sources.sources.sdk.testing import (
+    RunStopped,
+    ScriptedResponse,
+    SourceDriver,
+    activate_safe_point,
+    always,
+    scripted_network,
+    source_inputs,
+)
 
 TOKEN = "glsa_test_token"
 STACK_URL = "https://acme.grafana.net"
@@ -200,6 +210,9 @@ def test_incident_child_fans_out_over_every_incident(
     ]
     assert all(body["query"].get("orderField") == order_field for body in child_bodies)
     assert all(body["query"]["orderDirection"] == "ASC" for body in child_bodies)
+    if endpoint == "incident_key_updates":
+        assert result.response is not None
+        assert not result.response.supports_resume
 
 
 @time_machine.travel("2026-01-08T15:30:00Z", tick=False)
@@ -212,7 +225,9 @@ def test_final_schedule_shifts_page_per_schedule() -> None:
             ScriptedResponse(json=_oncall_page([{"id": "schedule-a"}], 1, total_pages=2)),
             ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=2)),
             ScriptedResponse(json=_oncall_page([second_shift], 2, total_pages=2)),
-            ScriptedResponse(json=_oncall_page([{"id": "schedule-empty"}, {"id": "schedule-b"}], 2, total_pages=2)),
+            ScriptedResponse(
+                json=_oncall_page([{"id": "schedule-empty"}, {"name": "No ID"}, {"id": "schedule/b"}], 2, total_pages=2)
+            ),
             ScriptedResponse(json=_oncall_page([], 1, total_pages=1)),
             ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=1)),
         ],
@@ -222,7 +237,7 @@ def test_final_schedule_shifts_page_per_schedule() -> None:
     assert result.rows == [
         {**first_shift, "schedule_id": "schedule-a"},
         {**second_shift, "schedule_id": "schedule-a"},
-        {**first_shift, "schedule_id": "schedule-b"},
+        {**first_shift, "schedule_id": "schedule/b"},
     ]
     base = "/oncall/api/v1/schedules/"
     assert [(request.path, request.param("page")) for request in result.requests] == [
@@ -231,12 +246,51 @@ def test_final_schedule_shifts_page_per_schedule() -> None:
         (f"{base}schedule-a/final_shifts", "2"),
         (base, "2"),
         (f"{base}schedule-empty/final_shifts", "1"),
-        (f"{base}schedule-b/final_shifts", "1"),
+        (f"{base}schedule%2Fb/final_shifts", "1"),
     ]
     for request in result.requests:
         if request.path != base:
             assert request.param("start_date") == "2025-01-08"
             assert request.param("end_date") == "2026-01-08"
+    assert result.response is not None
+    assert not result.response.supports_resume
+
+
+@pytest.mark.parametrize(
+    ("endpoint", "parent_response", "empty_response"),
+    [
+        (
+            "final_schedule_shifts",
+            _oncall_page([{"id": "schedule-a"}, {"id": "schedule-b"}], 1, total_pages=1),
+            _oncall_page([], 1, total_pages=1),
+        ),
+        (
+            "incident_key_updates",
+            {"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}},
+            {"keyUpdates": [], "cursor": {"hasMore": False}},
+        ),
+    ],
+)
+def test_empty_fanout_child_checks_for_shutdown_before_next_parent(
+    endpoint: str, parent_response: dict[str, Any], empty_response: dict[str, Any]
+) -> None:
+    source = GrafanaIRMSource()
+    inputs = source_inputs(endpoint)
+    config = GrafanaIRMSourceConfig(token=TOKEN, stack_url=STACK_URL, oncall_api_url=ONCALL_URL)
+
+    def stop() -> None:
+        raise RunStopped("worker is shutting down")
+
+    with scripted_network([ScriptedResponse(json=parent_response), ScriptedResponse(json=empty_response)]) as network:
+        items = source.source_for_pipeline(config, source.get_resumable_source_manager(inputs), inputs).items()
+        assert isinstance(items, Iterable)
+        with (
+            activate_safe_point(stop, covers_framework_checkpoints=isinstance(items, Resource)),
+            pytest.raises(RunStopped, match="worker is shutting down"),
+        ):
+            list(items)
+
+    assert len(network.requests_log) == 2
 
 
 def test_alerts_fan_out_over_every_alert_group() -> None:
@@ -339,6 +393,7 @@ def test_incident_lookup_tables_are_one_unfiltered_request(
         (200, 404, None, False, "isn't enabled"),
         (403, None, "alert_groups", False, "permission"),
         (200, None, "alerts", True, None),
+        (200, None, "final_schedule_shifts", True, None),
         (403, None, "alerts", False, "permission"),
         (None, 403, "incidents", False, "permission"),
         (500, 200, None, False, "HTTP 500"),
@@ -364,7 +419,8 @@ def test_validate_credentials_maps_statuses(
     assert network.session_options == [{"redact_values": (TOKEN,)}]
     expected_requests = []
     if schema_name != "incidents":
-        expected_requests.append(("GET", "/oncall/api/v1/alert_groups/"))
+        oncall_path = "schedules" if schema_name == "final_schedule_shifts" else "alert_groups"
+        expected_requests.append(("GET", f"/oncall/api/v1/{oncall_path}/"))
     if schema_name == "incidents" or (schema_name is None and oncall_status in (200, 403)):
         expected_requests.append(("POST", INCIDENT_PATH))
     requests = [(request.method, request.path) for request in network.requests_log]
