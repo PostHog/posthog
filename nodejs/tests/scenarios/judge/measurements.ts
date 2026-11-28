@@ -8,9 +8,10 @@ import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
+import type { RoleExit } from '../environment/supervisor'
 import type { QueueCounts, WriterBackends } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { ValveTimelineEntry, exitedByValve } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
@@ -29,7 +30,11 @@ export type MetricSample = {
     consumerLoopErrors: number
     janitorStalled: number
     lateness: Record<string, Record<string, number>>
+    heapUsedBytes?: number
+    attachments?: AttachmentGauges
 }
+
+export type AttachmentGauges = { deferrals: Record<string, number>; inFlight: number; reservedBytes: number }
 
 export type MissedScrape = { role: string; replica: number; at: number }
 
@@ -60,6 +65,8 @@ type Value = { value: number; censored?: true } | { value: null; censored: true 
 
 type Measured = { key?: string; incomplete?: true; unmeasured?: string } & Value
 
+const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
+
 export type Measurement = { name: string; unit: string } & Measured
 
 export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> &
@@ -75,6 +82,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         horizonAt?: number
         converged?: boolean
         unsettled?: string
+        exits?: readonly RoleExit[]
     }
 
 export type MeasurementDefinition = Definition & {
@@ -96,7 +104,7 @@ const byRole = (samples: readonly MetricSample[]): Map<string, MetricSample[]> =
 const completeness = (role: string, missed: readonly MissedScrape[]): { incomplete?: true } =>
     missed.some((miss) => miss.role === role) ? { incomplete: true } : {}
 
-const lostCpu = (ofReplica: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
+const lostIncrease = (ofReplica: readonly MetricSample[], missed: readonly MissedScrape[]): boolean =>
     new Set(ofReplica.map(({ startedAt }) => startedAt)).size > 1 ||
     missed.some(
         (miss) =>
@@ -131,7 +139,7 @@ export const roleCpuSeconds: MeasurementDefinition = {
             return {
                 key: role,
                 value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
-                ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
+                ...(replicas.some((ofReplica) => lostIncrease(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),
 }
@@ -139,16 +147,87 @@ export const roleCpuSeconds: MeasurementDefinition = {
 export const maxOf = (values: readonly number[]): number =>
     values.reduce((max, value) => Math.max(max, value), -Infinity)
 
-export const roleRssMaxBytes: MeasurementDefinition = {
-    name: 'role_rss_max_bytes',
+const EMAIL_WORKER: z.infer<typeof CdpRole> = 'cdp-cyclotron-worker-email'
+
+const emailWorkerOnly = (samples: readonly MetricSample[]): MetricSample[] =>
+    samples.filter(({ role }) => role === EMAIL_WORKER)
+
+const peakPerRole = (
+    name: string,
+    unit: string,
+    read: (sample: MetricSample) => number | undefined,
+    rolesOf: (samples: readonly MetricSample[]) => readonly MetricSample[] = (samples) => samples
+): MeasurementDefinition => ({
+    name,
     params: z.object({}).strict(),
-    unit: 'bytes',
+    unit,
     measure: ({ samples, missed }) =>
-        [...byRole(samples)].map(([role, ofRole]) => ({
+        [...byRole(rolesOf(samples))].flatMap(([role, ofRole]) => {
+            const values = ofRole.flatMap((sample) => read(sample) ?? [])
+            const lacking = values.length < ofRole.length ? { incomplete: true as const } : {}
+            return values.length === 0
+                ? []
+                : [{ key: role, value: maxOf(values), ...completeness(role, missed), ...lacking }]
+        }),
+})
+
+export const roleRssMaxBytes = peakPerRole('role_rss_max_bytes', 'bytes', ({ rssBytes }) => rssBytes)
+
+export const roleHeapMaxBytes = peakPerRole('role_heap_max_bytes', 'bytes', ({ heapUsedBytes }) => heapUsedBytes)
+
+export const attachmentSendsInFlightMax = peakPerRole(
+    'attachment_sends_in_flight_max',
+    'sends',
+    ({ attachments }) => attachments?.inFlight,
+    emailWorkerOnly
+)
+
+export const attachmentReservedBytesMax = peakPerRole(
+    'attachment_reserved_bytes_max',
+    'bytes',
+    ({ attachments }) => attachments?.reservedBytes,
+    emailWorkerOnly
+)
+
+export const roleRestarts: MeasurementDefinition = {
+    name: 'role_restarts',
+    params: z.object({}).strict(),
+    unit: 'restarts',
+    measure: ({ samples, exits = [], timeline }) =>
+        [...new Set([...samples, ...exits].map(({ role }) => role))].sort().map((role) => ({
             key: role,
-            value: maxOf(ofRole.map(({ rssBytes }) => rssBytes)),
-            ...completeness(role, missed),
+            value: exits.filter((exit) => exit.role === role && !exitedByValve(exit, timeline)).length,
         })),
+}
+
+type WithAttachments = MetricSample & { attachments: AttachmentGauges }
+
+const deferralReplicasOf = (samples: readonly MetricSample[]): WithAttachments[][] =>
+    replicasOf(emailWorkerOnly(samples).filter((sample): sample is WithAttachments => sample.attachments !== undefined))
+
+const deferredFor =
+    (reason: string): Counter =>
+    ({ attachments }) =>
+        attachments?.deferrals[reason] ?? 0
+
+export const attachmentDeferrals: MeasurementDefinition = {
+    name: 'attachment_deferrals',
+    params: z.object({}).strict(),
+    unit: 'tokens',
+    measure: ({ samples, missed, sampledFrom }) => {
+        const replicas = deferralReplicasOf(samples)
+        const reasons = [...new Set(replicas.flat().flatMap(({ attachments }) => Object.keys(attachments.deferrals)))]
+        const incomplete = replicas.some((ofReplica) => lostIncrease(ofReplica, missed))
+        return reasons.sort().map((reason) =>
+            replicas.flat().some(({ attachments }) => !(reason in attachments.deferrals))
+                ? { key: reason, ...unmeasured('not measured: an email worker scrape lacked this reason') }
+                : {
+                      key: reason,
+                      value: increaseAcrossReplicas(replicas, deferredFor(reason), sampledFrom),
+                      ...(incomplete ? { incomplete: true as const } : {}),
+                  }
+        )
+    },
 }
 
 const nearestRank = (sorted: number[], share: number): number => sorted[Math.ceil(share * sorted.length) - 1]
@@ -188,8 +267,6 @@ const terminationsOf = (
     timeline: readonly ValveTimelineEntry[]
 ): (ValveTimelineEntry & Required<Pick<ValveTimelineEntry, 'exit'>>)[] =>
     timeline.flatMap((entry) => (entry.exit === undefined ? [] : [{ ...entry, exit: entry.exit }]))
-
-const unmeasured = (reason: string): Measured => ({ value: null, censored: true, unmeasured: reason })
 
 export const roleExitMs: MeasurementDefinition = {
     name: 'role_exit_ms',
@@ -411,7 +488,7 @@ const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase
     return [...spanning(series, phase), ...(closing ? [closing] : [])]
 }
 
-const replicasOf = (samples: readonly MetricSample[]): MetricSample[][] => [
+const replicasOf = <T extends MetricSample>(samples: readonly T[]): T[][] => [
     ...Map.groupBy(byTime(samples), ({ role, replica }) => `${role}-${replica}`).values(),
 ]
 
@@ -1005,7 +1082,12 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
 export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
+    roleHeapMaxBytes,
+    roleRestarts,
     deliveryLatencyMs,
+    attachmentDeferrals,
+    attachmentSendsInFlightMax,
+    attachmentReservedBytesMax,
     roleExitMs,
     leaseReclaimMs,
     resentInvocations,
@@ -1068,10 +1150,27 @@ function latenessOf(text: string): Record<string, Record<string, number>> {
     return lateness
 }
 
+function attachmentsOf(text: string): AttachmentGauges | undefined {
+    const inFlight = gauge(text, 'cdp_email_attachments_sends_in_flight')
+    const reservedBytes = gauge(text, 'cdp_email_attachments_reserved_bytes')
+    if (inFlight === undefined || reservedBytes === undefined) {
+        return undefined
+    }
+    const deferrals: Record<string, number> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_email_attachments_deferral_tokens_total')) {
+        if (labels.reason !== undefined) {
+            deferrals[labels.reason] = (deferrals[labels.reason] ?? 0) + value
+        }
+    }
+    return { deferrals, inFlight, reservedBytes }
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
     const rssBytes = gauge(text, 'process_resident_memory_bytes')
+    const heapUsedBytes = gauge(text, 'nodejs_heap_size_used_bytes')
+    const attachments = attachmentsOf(text)
     return startedAt === undefined || cpuSeconds === undefined || rssBytes === undefined
         ? undefined
         : {
@@ -1086,6 +1185,8 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
               janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
+              ...(heapUsedBytes !== undefined && { heapUsedBytes }),
+              ...(attachments && { attachments }),
           }
 }
 

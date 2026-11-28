@@ -2,7 +2,7 @@ import http from 'http'
 import { AddressInfo } from 'net'
 import { Registry, collectDefaultMetrics } from 'prom-client'
 
-import type { RoleTermination } from '../environment/supervisor'
+import type { RoleExit, RoleTermination } from '../environment/supervisor'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 import type { ValveTimelineEntry } from '../valves/valves'
@@ -40,6 +40,16 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     consumerLoopErrors: 0,
     janitorStalled: 0,
     lateness: {},
+})
+
+const withGauges = (
+    at: MetricSample,
+    heapUsedBytes: number,
+    gauges: Partial<NonNullable<MetricSample['attachments']>> = {}
+): MetricSample => ({
+    ...at,
+    heapUsedBytes,
+    attachments: { deferrals: {}, inFlight: 0, reservedBytes: 0, ...gauges },
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -192,6 +202,132 @@ describe('measurements', () => {
     ])('keeps the largest resident set of each role across its replicas over %s', (_story, samples) => {
         expect(measure([{ name: 'role_rss_max_bytes', params: {} }], evidence({ samples }))).toEqual([
             { name: 'role_rss_max_bytes', key: ROLE, value: 900, unit: 'bytes' },
+        ])
+    })
+
+    it.each<[string, string, { key: string; value: number }[]]>([
+        [
+            'role_heap_max_bytes',
+            'bytes',
+            [
+                { key: ROLE, value: 700 },
+                { key: 'cdp-api', value: 900 },
+            ],
+        ],
+        ['attachment_sends_in_flight_max', 'sends', [{ key: ROLE, value: 3 }]],
+        ['attachment_reserved_bytes_max', 'bytes', [{ key: ROLE, value: 60_000_000 }]],
+    ])('keeps the largest %s of each role it reads', (name, unit, values) => {
+        const samples = [
+            withGauges(sample(0, -60, 1), 500, { inFlight: 1, reservedBytes: 20_000_000 }),
+            withGauges(sample(5, -60, 1, 100, 1), 700, { inFlight: 3, reservedBytes: 60_000_000 }),
+            withGauges(sample(10, 7, 1), 400, { inFlight: 0, reservedBytes: 0 }),
+            withGauges({ ...sample(5, -60, 1), role: 'cdp-api' }, 900),
+        ]
+
+        expect(
+            measure([{ name, params: {} }], evidence({ samples, missed: [{ role: 'cdp-api', replica: 0, at: FROM }] }))
+        ).toEqual(
+            values.map((value) => ({ name, unit, ...value, ...(value.key === 'cdp-api' && { incomplete: true }) }))
+        )
+    })
+
+    it.each([
+        ['role_heap_max_bytes', 'bytes', 700],
+        ['attachment_sends_in_flight_max', 'sends', 3],
+        ['attachment_reserved_bytes_max', 'bytes', 60_000_000],
+    ])('marks %s incomplete when a scrape the role answered lacks it', (name, unit, value) => {
+        const samples = [
+            withGauges(sample(0, -60, 1), 700, { inFlight: 3, reservedBytes: 60_000_000 }),
+            sample(5, -60, 1),
+        ]
+
+        expect(measure([{ name, params: {} }], evidence({ samples }))).toEqual([
+            { name, unit, key: ROLE, value, incomplete: true },
+        ])
+    })
+
+    it.each<[string, MetricSample[], Omit<Measurement, 'name' | 'unit'>[]]>([
+        [
+            'one process that deferred for two reasons while sampled',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(10, -60, 1), 1, { deferrals: { over_budget: 6, at_cap: 1 } }),
+                withGauges(sample(15, -60, 1), 1, { deferrals: { over_budget: 9, at_cap: 2 } }),
+                withGauges(sample(20, -60, 1), 1, { deferrals: { over_budget: 9, at_cap: 2 } }),
+            ],
+            [
+                { key: 'at_cap', value: 1 },
+                { key: 'over_budget', value: 5 },
+            ],
+        ],
+        [
+            'a process killed and started again, whose new lifetime counts from zero',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 4 } }),
+                withGauges(sample(10, 7, 1), 1, { deferrals: { over_budget: 2 } }),
+            ],
+            [{ key: 'over_budget', value: 2, incomplete: true }],
+        ],
+        [
+            'a process that never deferred',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 0 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { over_budget: 0 } }),
+            ],
+            [{ key: 'over_budget', value: 0 }],
+        ],
+        [
+            'a process whose last scrape lacked one reason',
+            [
+                withGauges(sample(0, -60, 1), 1, { deferrals: { over_budget: 4, at_cap: 1 } }),
+                withGauges(sample(5, -60, 1), 1, { deferrals: { at_cap: 1 } }),
+            ],
+            [
+                { key: 'at_cap', value: 0 },
+                {
+                    key: 'over_budget',
+                    value: null,
+                    censored: true,
+                    unmeasured: 'not measured: an email worker scrape lacked this reason',
+                },
+            ],
+        ],
+    ])('counts the deferral tokens by reason for %s', (_story, samples, measured) => {
+        const otherRole = { ...withGauges(sample(0, -60, 1), 1, { deferrals: { idle: 0 } }), role: 'cdp-api' }
+
+        expect(
+            measure(
+                [{ name: 'attachment_deferrals', params: {} }],
+                evidence({ samples: [...samples, otherRole], missed: [{ role: 'cdp-api', replica: 0, at: FROM }] })
+            ).map(({ name: _name, unit: _unit, ...value }) => value)
+        ).toEqual(measured)
+    })
+
+    it('counts the exits of each role that no valve caused, across its replicas, even one no scrape saw', () => {
+        const exit = (role: string, replica: number, byValve: boolean): RoleExit => ({
+            role: role as RoleExit['role'],
+            replica,
+            at: new Date(FROM).toISOString(),
+            code: null,
+            signal: 'SIGKILL',
+            byValve,
+        })
+        const samples = [sample(0, -60, 1), sample(5, 3, 1), { ...sample(5, -60, 1), role: 'cdp-api' }]
+        const exits = [
+            exit(ROLE, 0, false),
+            exit(ROLE, 0, false),
+            exit(ROLE, 1, false),
+            exit('cdp-api', 0, true),
+            { ...exit(ROLE, 1, false), at: isoAt(1103), code: 1, signal: null },
+        ]
+
+        expect(
+            measure([{ name: 'role_restarts', params: {} }], evidence({ samples, exits, timeline: [FAILOVER] }))
+        ).toEqual([
+            { name: 'role_restarts', key: 'cdp-api', value: 0, unit: 'restarts' },
+            { name: 'role_restarts', key: ROLE, value: 3, unit: 'restarts' },
         ])
     })
 
@@ -361,6 +497,7 @@ describe('measurements', () => {
                 startedAt: expect.any(Number),
                 cpuSeconds: expect.any(Number),
                 rssBytes: expect.any(Number),
+                heapUsedBytes: expect.any(Number),
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
@@ -457,7 +594,8 @@ describe('measurements', () => {
         [
             string,
             string[],
-            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'>,
+            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'> &
+                Pick<MetricSample, 'heapUsedBytes' | 'attachments'>,
         ]
     >([
         [
@@ -485,11 +623,30 @@ describe('measurements', () => {
             },
         ],
         [
+            'an email worker holding files in flight after it deferred for two reasons',
+            [
+                'nodejs_heap_size_used_bytes 5000',
+                'cdp_email_attachments_sends_in_flight 2',
+                'cdp_email_attachments_reserved_bytes 30000000',
+                'cdp_email_attachments_deferral_tokens_total{reason="over_budget"} 3',
+                'cdp_email_attachments_deferral_tokens_total{reason="at_cap"} 1',
+            ],
+            {
+                processed: {},
+                pgClientErrors: 0,
+                consumerLoopErrors: 0,
+                janitorStalled: 0,
+                lateness: {},
+                heapUsedBytes: 5000,
+                attachments: { deferrals: { over_budget: 3, at_cap: 1 }, inFlight: 2, reservedBytes: 30_000_000 },
+            },
+        ],
+        [
             'a role whose labelled counters never moved',
             [],
             { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, janitorStalled: 0, lateness: {} },
         ],
-    ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
+    ])('samples the Cyclotron and attachment counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
         expect(sampleOf({ role: ROLE, replica: 0, metricsUrl: '' }, FROM, text)).toEqual({
