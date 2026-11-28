@@ -1,4 +1,4 @@
-import { useActions, useValues } from 'kea'
+import { useActions } from 'kea'
 import { type MouseEvent, useCallback } from 'react'
 
 import { type OpenTraceDialogOptions, traceDialogOpenLogic } from 'lib/components/ViewTraceButton/traceDialogOpenLogic'
@@ -11,20 +11,16 @@ export type OpenTraceDialogHandler = (
 ) => boolean
 
 /**
- * Opens a trace in the dialog in place of navigating to Tracing. Returns false when it did not, so
- * the caller's link or navigation goes ahead: while the dialog flag is off, and for modifier and
- * non-primary clicks. Cmd and ctrl then open Tracing in a new tab, and shift opens it in place.
+ * Opens a trace in the dialog in place of navigating to Tracing. Returns false for modifier and
+ * non-primary clicks, so the caller's link or navigation goes ahead. Cmd and ctrl then open Tracing
+ * in a new tab, and shift opens it in place.
  */
 export function useOpenTraceDialog(): OpenTraceDialogHandler {
-    const { dialogEnabled } = useValues(traceDialogOpenLogic)
     const { openTraceDialog } = useActions(traceDialogOpenLogic)
 
-    // Stable while the flag holds, so callers can list it in a memo's dependencies.
+    // Stable across renders, so callers can list it in a memo's dependencies.
     return useCallback(
         (event, trace, options) => {
-            if (!dialogEnabled) {
-                return false
-            }
             if (event && (event.metaKey || event.ctrlKey || event.shiftKey || event.button !== 0)) {
                 return false
             }
@@ -32,6 +28,6 @@ export function useOpenTraceDialog(): OpenTraceDialogHandler {
             openTraceDialog(trace, options)
             return true
         },
-        [dialogEnabled, openTraceDialog]
+        [openTraceDialog]
     )
 }
