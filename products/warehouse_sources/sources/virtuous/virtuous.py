@@ -33,6 +33,7 @@ if TYPE_CHECKING:
 
 logger = structlog.get_logger(__name__)
 COMMUNICATIONS_MAX_PAGES = 100
+COMMUNICATIONS_PAGE_LIMIT_ERROR = "Virtuous communications exceeded the page limit for a campaign"
 
 
 class _CommunicationsPaginator(OffsetPaginator):
@@ -45,7 +46,7 @@ class _CommunicationsPaginator(OffsetPaginator):
                 campaign_id=urlsplit(response.url).path.rsplit("/", 1)[-1],
                 max_pages=COMMUNICATIONS_MAX_PAGES,
             )
-            raise ValueError("Virtuous communications exceeded the page limit for a campaign")
+            raise ValueError(COMMUNICATIONS_PAGE_LIMIT_ERROR)
 
 
 @frozen
