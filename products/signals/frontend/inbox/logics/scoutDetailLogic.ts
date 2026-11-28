@@ -59,12 +59,19 @@ export interface OlderRunPages {
     exhausted: boolean
 }
 
+/**
+ * `endReached` turns true once a page comes back short. `exhausted` waits for that and for every
+ * report or finding the loaded runs name, since a fetch is capped per click and can fail.
+ */
 export interface OlderReportPages extends OlderRunPages {
     reports: SignalReport[]
+    endReached: boolean
 }
 
 export interface OlderSignalPages extends OlderRunPages {
     rows: ScoutEmissionRow[]
+    loadedRunIds: string[]
+    endReached: boolean
 }
 
 // A report-authoring scout could in theory touch many reports across the window; bound the per-report
@@ -554,55 +561,89 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                 },
             },
         ],
-        // Older reports for the Reports tab: a page of runs that authored or edited a report, then
-        // each report those runs name that no loaded page already holds, fetched by id.
+        // Older reports for the Reports tab. A click first fetches the reports already-loaded runs
+        // name and nothing has fetched: those past the window's fetch cap, and those whose fetch
+        // failed. Only then does it read a page of runs that authored or edited a report.
         olderReports: [
-            { ...NO_OLDER_PAGES, reports: [] } as OlderReportPages,
+            { ...NO_OLDER_PAGES, reports: [], endReached: false } as OlderReportPages,
             {
                 loadOlderReports: async (): Promise<OlderReportPages> => {
                     const previous = values.olderReports
-                    const page = await fetchOlderRuns(props.skillName, [...values.windowRuns, ...previous.runs], {
-                        touched_report: true,
-                    })
-                    const known = new Set([
-                        ...values.touchedReports.map(({ id }) => id),
-                        ...previous.reports.map((report) => report.id),
-                    ])
-                    const pending = [...touchedReportActions(page).keys()]
-                        .filter((id) => !known.has(id) && !isReportUnreachable(id))
-                        .slice(0, MAX_TOUCHED_REPORTS)
-                    const fetched = await fetchReports(pending)
+                    const fetchedIds = new Set(previous.reports.map((report) => report.id))
+                    // The window's own loader fetches its first MAX_TOUCHED_REPORTS reachable ids.
+                    const windowReachable = values.touchedReports
+                        .map(({ id }) => id)
+                        .filter((id) => !isReportUnreachable(id))
+                    const windowFetched = new Set(windowReachable.slice(0, MAX_TOUCHED_REPORTS))
+                    const owed = (ids: string[]): string[] => [
+                        ...new Set(
+                            ids.filter(
+                                (id) => !windowFetched.has(id) && !fetchedIds.has(id) && !isReportUnreachable(id)
+                            )
+                        ),
+                    ]
+                    const idsTouchedBy = (runs: SignalScoutRunSummary[]): string[] => [
+                        ...touchedReportActions([...runs].sort(newestFirst)).keys(),
+                    ]
+                    let runs = previous.runs
+                    let endReached = previous.endReached
+                    let pending = owed([...windowReachable, ...idsTouchedBy(runs)])
+                    if (pending.length === 0 && !endReached) {
+                        const page = await fetchOlderRuns(props.skillName, [...values.windowRuns, ...runs], {
+                            touched_report: true,
+                        })
+                        runs = appendNewRuns(runs, page)
+                        endReached = page.length < OLDER_PAGE_SIZE
+                        pending = owed(idsTouchedBy(page))
+                    }
+                    const fetched = await fetchReports(pending.slice(0, MAX_TOUCHED_REPORTS))
+                    for (const report of fetched) {
+                        fetchedIds.add(report.id)
+                    }
+                    const stillOwed = pending.some((id) => !fetchedIds.has(id) && !isReportUnreachable(id))
                     return {
-                        runs: appendNewRuns(previous.runs, page),
+                        runs,
                         reports: [...previous.reports, ...fetched],
                         pageCount: previous.pageCount + 1,
-                        exhausted: page.length < OLDER_PAGE_SIZE,
+                        endReached,
+                        exhausted: endReached && !stillOwed,
                     }
                 },
             },
         ],
         // Older findings for the Signals tab, found the way the window finds them: runs with output,
-        // then each emitting run's findings and the reports they grouped into.
+        // then each emitting run's findings and the reports they grouped into. A click first fetches
+        // the emitting runs already loaded whose findings no fetch returned: window runs past
+        // MAX_EMITTED_RUNS, and runs whose fetch failed. Only then does it read older pages.
         olderSignals: [
-            { ...NO_OLDER_PAGES, rows: [] } as OlderSignalPages,
+            { ...NO_OLDER_PAGES, rows: [], loadedRunIds: [], endReached: false } as OlderSignalPages,
             {
                 loadOlderSignals: async (): Promise<OlderSignalPages> => {
                     const previous = values.olderSignals
+                    const loadedIds = new Set([
+                        ...values.emittedRuns.map((run) => run.run_id),
+                        ...previous.loadedRunIds,
+                    ])
+                    const owed = (runs: SignalScoutRunSummary[]): SignalScoutRunSummary[] =>
+                        runs
+                            .filter((run) => (run.emitted_count ?? 0) > 0 && !loadedIds.has(run.run_id))
+                            .sort(newestFirst)
                     let runs = previous.runs
-                    let exhausted = false
-                    const emitting: SignalScoutRunSummary[] = []
+                    let endReached = previous.endReached
+                    let pending = owed(appendNewRuns(values.windowRuns, runs))
                     for (
                         let page = 0;
-                        page < MAX_SIGNAL_PAGES_PER_LOAD && emitting.length === 0 && !exhausted;
+                        page < MAX_SIGNAL_PAGES_PER_LOAD && pending.length === 0 && !endReached;
                         page++
                     ) {
                         const pageRuns = await fetchOlderRuns(props.skillName, [...values.windowRuns, ...runs], {
                             emitted: true,
                         })
                         runs = appendNewRuns(runs, pageRuns)
-                        exhausted = pageRuns.length < OLDER_PAGE_SIZE
-                        emitting.push(...pageRuns.filter((run) => (run.emitted_count ?? 0) > 0))
+                        endReached = pageRuns.length < OLDER_PAGE_SIZE
+                        pending = owed(pageRuns)
                     }
+                    const emitting = pending.slice(0, MAX_EMITTED_RUNS)
                     const projectId = String(ApiConfig.getCurrentProjectId())
                     const [emissionResults, linkResults] = await Promise.all([
                         Promise.allSettled(emitting.map((run) => signalsScoutRunsEmissions(projectId, run.run_id))),
@@ -633,11 +674,19 @@ export const scoutDetailLogic = kea<scoutDetailLogicType>([
                                 : []
                         })
                         .sort((a, b) => (b.emission.emitted_at ?? '').localeCompare(a.emission.emitted_at ?? ''))
+                    const loadedNow = emitting
+                        .filter((_, index) => emissionResults[index].status === 'fulfilled')
+                        .map((run) => run.run_id)
+                    for (const runId of loadedNow) {
+                        loadedIds.add(runId)
+                    }
                     return {
                         runs,
                         rows: [...previous.rows, ...rows],
+                        loadedRunIds: [...previous.loadedRunIds, ...loadedNow],
                         pageCount: previous.pageCount + 1,
-                        exhausted,
+                        endReached,
+                        exhausted: endReached && owed(appendNewRuns(values.windowRuns, runs)).length === 0,
                     }
                 },
             },

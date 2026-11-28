@@ -6,12 +6,13 @@ import api from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import {
+    signalsScoutRunsEmissions,
     signalsScoutRunsList,
     signalsScoutRunsRecentEmissions,
     signalsScoutRunsRecentPerScout,
 } from 'products/signals/frontend/generated/api'
 
-import { SignalReport, SignalScoutRunSummary } from '../types'
+import { SignalReport, SignalScoutEmission, SignalScoutRunSummary } from '../types'
 import { SCOUT_RUNS_PER_SCOUT } from '../utils/scoutRunsWindow'
 import { OLDER_PAGE_SIZE, scoutDetailLogic } from './scoutDetailLogic'
 import { scoutFleetLogic } from './scoutFleetLogic'
@@ -33,6 +34,20 @@ const mockRecentPerScout = signalsScoutRunsRecentPerScout as jest.MockedFunction
 const mockRecentEmissions = signalsScoutRunsRecentEmissions as jest.MockedFunction<
     typeof signalsScoutRunsRecentEmissions
 >
+const mockEmissions = signalsScoutRunsEmissions as jest.MockedFunction<typeof signalsScoutRunsEmissions>
+
+function emissionFor(runId: string): SignalScoutEmission {
+    return {
+        id: `emission-${runId}`,
+        run_id: runId,
+        finding_id: 'finding',
+        description: '',
+        severity: null,
+        tags: [],
+        source_id: `run:${runId}:finding:finding`,
+        emitted_at: '2026-11-01T00:00:00Z',
+    }
+}
 
 const SKILL = 'signals-scout-errors'
 
@@ -87,6 +102,7 @@ describe('scoutDetailLogic', () => {
         mockRunsList.mockReset()
         mockRecentPerScout.mockReset()
         mockRecentEmissions.mockReset().mockResolvedValue([])
+        mockEmissions.mockReset().mockImplementation(async (_, runId) => [emissionFor(runId)])
         jest.mocked(posthog.capture).mockClear()
     })
 
@@ -187,6 +203,65 @@ describe('scoutDetailLogic', () => {
             ['r-2', 'edited'],
         ])
         expect(logic.values.olderReports.exhausted).toBe(true)
+    })
+
+    it('fetches window reports past the fetch cap before it pages older runs', async () => {
+        const getReport = jest
+            .spyOn(api.signalReports, 'get')
+            .mockImplementation(async (id: string) => ({ id, updated_at: '2026-11-01T00:00:00Z' }) as SignalReport)
+        const reportIds = Array.from({ length: 55 }, (_, index) => `r-${index}`)
+        await mountWith([makeRun('window-edit', 1, { edited_report_ids: reportIds })])
+        expect(getReport).toHaveBeenCalledTimes(50)
+
+        await expectLogic(logic, () => logic.actions.loadOlder('reports')).toDispatchActions([
+            'loadOlderReportsSuccess',
+        ])
+
+        expect(mockRunsList).not.toHaveBeenCalled()
+        expect(getReport.mock.calls.slice(50).map(([id]) => id)).toEqual(reportIds.slice(50))
+        expect(logic.values.reportRows).toHaveLength(55)
+        expect(logic.values.olderReports.exhausted).toBe(false)
+    })
+
+    it('fetches findings of window runs past the emitted-run cap before it pages older runs', async () => {
+        const emittingWindow = makeRuns('window', 55, 1).map((run) => ({ ...run, emitted_count: 1 }))
+        await mountWith(emittingWindow)
+
+        await expectLogic(logic, () => logic.actions.loadOlder('signals')).toDispatchActions([
+            'loadOlderSignalsSuccess',
+        ])
+
+        expect(mockRunsList).not.toHaveBeenCalled()
+        expect(logic.values.emissionRows.map(({ run }) => run.run_id)).toEqual(emittingWindow.map((run) => run.run_id))
+    })
+
+    it('retries an older run whose findings failed to load before the cursor moves past it', async () => {
+        await mountWith(windowRuns)
+        const olderPage = [
+            makeRun('older-ok', 200, { emitted_count: 1 }),
+            makeRun('older-flaky', 201, { emitted_count: 1 }),
+        ]
+        mockRunsList.mockResolvedValue(olderPage)
+        mockEmissions.mockImplementation(async (_, runId) => {
+            if (runId === 'older-flaky') {
+                throw new Error('transient')
+            }
+            return [emissionFor(runId)]
+        })
+
+        await expectLogic(logic, () => logic.actions.loadOlder('signals')).toDispatchActions([
+            'loadOlderSignalsSuccess',
+        ])
+        expect(logic.values.olderSignals.exhausted).toBe(false)
+
+        mockEmissions.mockImplementation(async (_, runId) => [emissionFor(runId)])
+        await expectLogic(logic, () => logic.actions.loadOlder('signals')).toDispatchActions([
+            'loadOlderSignalsSuccess',
+        ])
+
+        expect(mockRunsList).toHaveBeenCalledTimes(1)
+        expect(logic.values.emissionRows.map(({ run }) => run.run_id)).toEqual(['older-ok', 'older-flaky'])
+        expect(logic.values.olderSignals.exhausted).toBe(true)
     })
 
     it.each([
