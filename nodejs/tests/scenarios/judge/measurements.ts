@@ -240,6 +240,11 @@ function heldAtExitOf({ timeline, truth }: MeasureEvidence): HeldAtExit {
     if (terminations.length !== 1) {
         return { reason: 'the card must terminate exactly one role' }
     }
+    if (terminations[0].target !== WORKER_OF.email) {
+        return {
+            reason: `the card terminates ${terminations[0].target}, not the email worker that makes the SES calls`,
+        }
+    }
     if (exitedAt === undefined) {
         return { reason: `${terminations[0].target} did not exit` }
     }
@@ -252,7 +257,10 @@ function heldAtExitOf({ timeline, truth }: MeasureEvidence): HeldAtExit {
         }
     }
     const { releasedAt } = holds[0]
-    if (releasedAt !== undefined && Date.parse(releasedAt) <= Date.parse(exitedAt)) {
+    if (releasedAt === undefined) {
+        return { reason: 'the hold has no release time, so nothing shows it still kept the answers at the exit' }
+    }
+    if (Date.parse(releasedAt) <= Date.parse(exitedAt)) {
         return { reason: 'the hold answered before the worker exited, so no SES call was open at the exit' }
     }
     const sends = truth.filter(
