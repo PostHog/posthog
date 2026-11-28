@@ -42,6 +42,8 @@ from posthog.schema import (
     TrendsAlertConfig,
 )
 
+from posthog.hogql.errors import ExposedHogQLError
+
 from posthog.api.documentation import extend_schema_field
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.routing import TeamAndOrgViewSetMixin
@@ -49,6 +51,7 @@ from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializer
 from posthog.dataclasses import frozen
 from posthog.email import is_email_available
+from posthog.errors import CH_TRANSIENT_ERRORS, ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties
 from posthog.exceptions import InsufficientScope, as_drf_validation_error
 from posthog.exceptions_capture import capture_exception
@@ -3249,6 +3252,13 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             if isinstance(e, ForecastDetectorUnavailableError):
                 raise LLMDetectorUnavailable(FORECAST_PREVIEW_UNAVAILABLE_MESSAGE)
             raise LLMDetectorUnavailable()
+        except (ExposedHogQLError, ExposedCHQueryError) as e:
+            # A preview returns the insight's own query error as a 400. The scheduled check keeps the
+            # narrower owner_sql_errors, because there an extraction error disables the alert.
+            # A transient ClickHouse error stays a 500, because the query itself can be sound.
+            if isinstance(e, CH_TRANSIENT_ERRORS):
+                raise
+            raise ValidationError(str(e))
         except RuntimeError:
             raise ValidationError("Simulation failed: unable to compute results for this insight.")
 
