@@ -7,6 +7,7 @@ import { PanelErrorBoundary } from '../../panels/core/PanelErrorBoundary'
 import { type SavedPanel } from '../../panels/core/panelSchema'
 import { PanelLoading } from '../../panels/core/PanelView'
 import { INTERACTIVE_ONLY_CLASS } from './ContentTile'
+import { TILE_PLACEHOLDER_CLASS } from './TileContextMenu'
 import { isPartShown } from './tileParts'
 
 /**
@@ -29,6 +30,7 @@ export function ContentTilePlaceholder({
             size="sm"
             className={clsx(
                 'dash-ContentTile',
+                TILE_PLACEHOLDER_CLASS,
                 editable && !showHeader && 'TileGrid__handle',
                 definition?.showOnInteractiveOnly(panel) && INTERACTIVE_ONLY_CLASS
             )}

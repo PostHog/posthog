@@ -1,7 +1,7 @@
 import { dropIntoGrid, stackTiles } from '../../grid/layout/gridTiles'
 import { type SizeOf, type PanelSize } from '../../panels/core/panelSpec'
 import { type Dashboard, type Tile, gridTabs, isSection } from '../document/dashboardTypes'
-import { findTile } from '../document/tileTree'
+import { allTiles, findTile } from '../document/tileTree'
 import { applyEdit, settleDashboard, withFolds, withoutTiles } from './dashboardEdits'
 
 const SIZES: Record<string, PanelSize> = {
@@ -252,6 +252,51 @@ describe('dashboardEdits', () => {
             { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
             { type: 'markdown', config: { text: 'new' }, ref: 'panel1' },
         ])
+    })
+
+    it('puts an independent copy under a duplicated tile, and moves what was below it down', () => {
+        const board = dashboard([
+            section('s', 0, 0, 24, [text('a', 0, 0, 8, 8), text('below', 0, 8, 8, 4), text('beside', 8, 8, 8, 4)]),
+        ])
+        const shared = applyEdit(board, { edit: 'addToGrid', id: 'a', grid: 'second' }, sizeOf)
+        const duplicated = applyEdit(shared, { edit: 'duplicateTile', id: 'a' }, sizeOf)
+        const copy = allTiles(duplicated).find((tile) => !allTiles(shared).some((old) => old.id === tile.id))!
+        const edited = applyEdit(duplicated, { edit: 'setPanelConfig', id: copy.id, config: { text: 'new' } }, sizeOf)
+
+        expect(places(gridTabs(edited)[0].tiles, 'first').slice(1)).toEqual([
+            'a@s: 0,0,8,8',
+            'below@s: 0,16,8,4',
+            'beside@s: 8,0,8,4',
+            `${copy.id}@s: 0,8,8,8`,
+        ])
+        expect([findTile(edited, 'a'), findTile(edited, copy.id)].map((tile) => tile?.panel)).toEqual([
+            { type: 'markdown', config: { text: 'a' }, ref: 'panel1' },
+            { type: 'markdown', config: { text: 'new' } },
+        ])
+    })
+
+    it('copies a duplicated section with its tiles under new ids', () => {
+        const board = dashboard([section('s', 0, 0, 24, [section('inner', 0, 0, 12, [text('a', 0, 0, 6, 8)])])])
+        const duplicated = applyEdit(board, { edit: 'duplicateTile', id: 's' }, sizeOf)
+        const ids = allTiles(duplicated).map((tile) => tile.id)
+
+        expect(new Set(ids).size).toBe(6)
+        expect(allPlaces(duplicated).map((place) => place.split(': ')[1])).toEqual([
+            '0,0,24,14',
+            '0,0,12,11',
+            '0,0,6,8',
+            '0,14,24,14',
+            '0,0,12,11',
+            '0,0,6,8',
+        ])
+    })
+
+    it('leaves the named tiles out of a duplicated section', () => {
+        const board = dashboard([section('s', 0, 0, 24, [text('a', 0, 0, 8, 8), text('b', 8, 0, 8, 8)])])
+        const duplicated = applyEdit(board, { edit: 'duplicateTile', id: 's', without: ['a'] }, sizeOf)
+        const copy = gridTabs(duplicated)[0].tiles[1]
+
+        expect(isSection(copy) && copy.panel.tiles.map((tile) => tile.panel)).toEqual([findTile(board, 'b')?.panel])
     })
 
     it('keeps the last tab with tiles when only link tabs would be left', () => {
