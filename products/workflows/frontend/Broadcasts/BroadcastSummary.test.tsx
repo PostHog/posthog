@@ -207,6 +207,55 @@ describe('BroadcastSummary', () => {
         }
     )
 
+    const emailSender = (id: number, name: string, email: string): Record<string, unknown> => ({
+        id,
+        kind: 'email',
+        display_name: email,
+        config: { name, email, verified: true },
+    })
+
+    it.each([
+        {
+            set: 'the default name and address',
+            from: { integrationId: 2 },
+            expected: 'Product updates <updates@example.com>',
+        },
+        {
+            set: 'a name and address set on the email',
+            from: { integrationId: 2, name: 'Ada at Example', email: 'ada@example.com' },
+            expected: 'Ada at Example <ada@example.com>',
+        },
+    ])('shows the sender with $set, even with one sender in the project', async ({ from, expected }) => {
+        const broadcast = sentBroadcast(AccessControlLevel.Editor, []) as any
+        broadcast.actions[1].config.inputs.email.value.from = from
+        useMocks({
+            get: {
+                '/api/projects/:team_id/hog_flows/:id/': broadcast,
+                '/api/projects/:team_id/hog_flows/:id/batch_jobs/': [],
+                '/api/projects/:team_id/integrations/': {
+                    results: [emailSender(2, 'Product updates', 'updates@example.com')],
+                    count: 1,
+                },
+            },
+        })
+        initKeaTests()
+        const props = { id: BROADCAST_ID }
+
+        render(
+            <Provider>
+                <BindLogic logic={broadcastWizardLogic} props={props}>
+                    <BindLogic logic={broadcastPreviewLogic} props={props}>
+                        <BindLogic logic={broadcastTestSendLogic} props={props}>
+                            <BroadcastSummary />
+                        </BindLogic>
+                    </BindLogic>
+                </BindLogic>
+            </Provider>
+        )
+
+        expect(await screen.findByText(expected)).toBeInTheDocument()
+    })
+
     it.each([
         { opened: 'by clicking the History tab', activityLink: false },
         { opened: 'from a copied activity link', activityLink: true },

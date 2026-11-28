@@ -44,6 +44,7 @@ import { BroadcastPushPreview } from './BroadcastPushPreview'
 import { canStillBeSending } from './broadcastRunAudience'
 import { BroadcastRunNotSent } from './BroadcastRunNotSent'
 import { BroadcastSceneHeader } from './BroadcastSceneHeader'
+import { BroadcastSender } from './BroadcastSender'
 import { broadcastSendingLogic } from './broadcastSendingLogic'
 import { broadcastSentLogic } from './broadcastSentLogic'
 import { type BroadcastChannel, type BroadcastRunStatus, getRunStatus } from './broadcastsLogic'
@@ -636,6 +637,11 @@ export function BroadcastSummary(): JSX.Element {
                                                 {email.subject || <span className="text-muted">No subject</span>}
                                             </SummaryRow>
                                         )}
+                                        {channel === 'email' ? (
+                                            <SummaryRow label="From">
+                                                <BroadcastSender />
+                                            </SummaryRow>
+                                        ) : null}
                                         {goalEnabled && <SummaryRow label="Goal">{goalSummary(conversion)}</SummaryRow>}
                                         {channel === 'email' ? (
                                             <SummaryRow label="Sending rate">

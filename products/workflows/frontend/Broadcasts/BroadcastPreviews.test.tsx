@@ -249,6 +249,21 @@ describe('broadcast previews', () => {
         expect(screen.getByText('Preview and test before this reaches the audience.')).toBeInTheDocument()
     })
 
+    it('shows the sender above the recipient', async () => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/integrations/': {
+                    results: [{ id: 1, kind: 'email', config: { name: 'Support', email: 'support@example.com' } }],
+                    count: 1,
+                },
+            },
+        })
+        mountWizard('email')
+        renderTree(<BroadcastEmailPreview showTestButton={false} />)
+
+        expect(await screen.findByText('Support <support@example.com>')).toBeInTheDocument()
+    })
+
     it('hides the email preview test button when showTestButton is false', () => {
         mountWizard('email')
         renderTree(<BroadcastEmailPreview showTestButton={false} />)
