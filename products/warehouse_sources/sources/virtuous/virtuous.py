@@ -1,15 +1,19 @@
 from datetime import date, datetime, timedelta
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
+from urllib.parse import urlsplit
 
+import structlog
 from dateutil import parser
 
 from products.warehouse_sources.sources.sdk import (
+    ClientConfig,
     Endpoint,
     EndpointResource,
     OffsetPaginator,
     RESTAPIConfig,
     ResumableSourceManager,
     SourceResponse,
+    build_dependent_resource,
     frozen,
     make_tracked_session,
     rest_api_resource,
@@ -24,10 +28,31 @@ from products.warehouse_sources.sources.virtuous.settings import (
     VirtuousEndpointConfig,
 )
 
+if TYPE_CHECKING:
+    from requests import Response
+
+logger = structlog.get_logger(__name__)
+COMMUNICATIONS_MAX_PAGES = 100
+COMMUNICATIONS_PAGE_LIMIT_ERROR = "Virtuous communications exceeded the page limit for a campaign"
+
+
+class _CommunicationsPaginator(OffsetPaginator):
+    def update_state(self, response: "Response", data: list[Any] | None = None) -> None:
+        super().update_state(response, data)
+        if self.has_next_page and self.offset >= self.limit * COMMUNICATIONS_MAX_PAGES:
+            logger.warning(
+                "virtuous_communications_page_cap_reached",
+                resource="communications",
+                campaign_id=urlsplit(response.url).path.rsplit("/", 1)[-1],
+                max_pages=COMMUNICATIONS_MAX_PAGES,
+            )
+            raise ValueError(COMMUNICATIONS_PAGE_LIMIT_ERROR)
+
 
 @frozen
 class VirtuousResumeConfig:
-    skip: int
+    skip: int = 0
+    fanout_state: dict[str, Any] | None = None
 
 
 def modified_since(last_value: Any) -> str:
@@ -69,16 +94,17 @@ def build_request_body(
     return {**body, "groups": groups, "sortBy": "Id", "descending": False}
 
 
-def _resource(
+def _endpoint(
     endpoint_config: VirtuousEndpointConfig,
-    should_use_incremental_field: bool,
-    db_incremental_field_last_value: Optional[Any],
-) -> EndpointResource:
+    last_value: Optional[Any] = None,
+    *,
+    paginator_type: type[OffsetPaginator] = OffsetPaginator,
+) -> Endpoint:
     endpoint: Endpoint = {
         "method": endpoint_config.method,
         "path": endpoint_config.path,
         "data_selector": "list",
-        "paginator": OffsetPaginator(
+        "paginator": paginator_type(
             limit=endpoint_config.page_size,
             offset_param="skip",
             limit_param="take",
@@ -86,15 +112,20 @@ def _resource(
         ),
     }
     if endpoint_config.method == "POST":
-        endpoint["json"] = build_request_body(endpoint_config, db_incremental_field_last_value)
+        endpoint["json"] = build_request_body(endpoint_config, last_value)
+    return endpoint
 
+
+def _resource(
+    endpoint_config: VirtuousEndpointConfig, should_use_incremental_field: bool, last_value: Optional[Any]
+) -> EndpointResource:
     return {
         "name": endpoint_config.name,
         "table_name": endpoint_config.name,
         "write_disposition": {"disposition": "merge", "strategy": "upsert"}
         if should_use_incremental_field
         else "replace",
-        "endpoint": endpoint,
+        "endpoint": _endpoint(endpoint_config, last_value),
         "table_format": "delta",
     }
 
@@ -115,39 +146,58 @@ def virtuous_source(
     use_incremental = should_use_incremental_field and endpoint_config.supports_incremental
     last_value = db_incremental_field_last_value if use_incremental else None
 
-    config: RESTAPIConfig = {
-        "client": {
-            "base_url": VIRTUOUS_BASE_URL,
-            "auth": {"type": "bearer", "token": api_key},
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            # Rows hold donor names, addresses, notes and giving history, which the generic sample
-            # scrubbers can't reliably redact. Requests are still metered and logged.
-            "capture": False,
-        },
-        "resource_defaults": {},
-        "resources": [_resource(endpoint_config, use_incremental, last_value)],
+    client_config: ClientConfig = {
+        "base_url": VIRTUOUS_BASE_URL,
+        "auth": {"type": "bearer", "token": api_key},
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        # Rows hold donor names, addresses, notes and giving history, which the generic sample
+        # scrubbers can't reliably redact. Requests are still metered and logged.
+        "capture": False,
     }
 
-    initial_paginator_state: Optional[dict[str, Any]] = None
-    if resumable_source_manager.can_resume():
-        resume_config = resumable_source_manager.load_state()
-        if resume_config is not None:
-            initial_paginator_state = {"offset": resume_config.skip}
+    resume_config = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
     def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
         if state and state.get("offset"):
             resumable_source_manager.save_state(VirtuousResumeConfig(skip=int(state["offset"])))
 
-    resource = rest_api_resource(
-        config,
-        team_id,
-        job_id,
-        None,
-        resume_hook=save_checkpoint,
-        initial_paginator_state=initial_paginator_state,
-    )
+    def save_fanout_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(VirtuousResumeConfig(fanout_state=state))
+
+    if fanout := endpoint_config.fanout:
+        resource = build_dependent_resource(
+            endpoint_configs=ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=fanout,
+            client_config=client_config,
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param=None,
+            parent_endpoint_extra=_endpoint(ENDPOINTS[fanout.parent_name]),
+            child_endpoint_extra=_endpoint(endpoint_config, paginator_type=_CommunicationsPaginator),
+            resume_hook=save_fanout_checkpoint,
+            initial_paginator_state=resume_config.fanout_state if resume_config is not None else None,
+            resume_parent_pagination=True,
+        )
+    else:
+        config: RESTAPIConfig = {
+            "client": client_config,
+            "resource_defaults": {},
+            "resources": [_resource(endpoint_config, use_incremental, last_value)],
+        }
+        resource = rest_api_resource(
+            config,
+            team_id,
+            job_id,
+            None,
+            resume_hook=save_checkpoint,
+            initial_paginator_state={"offset": resume_config.skip} if resume_config is not None else None,
+        )
 
     partition_key = endpoint_config.partition_key
     return SourceResponse(

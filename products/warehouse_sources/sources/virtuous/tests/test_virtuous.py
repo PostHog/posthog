@@ -4,8 +4,10 @@ from typing import Any
 import pytest
 
 import requests
+from structlog.testing import capture_logs
 
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
+from products.warehouse_sources.sources.virtuous import virtuous
 from products.warehouse_sources.sources.virtuous._config import VirtuousSourceConfig
 from products.warehouse_sources.sources.virtuous.source import VirtuousSource
 from products.warehouse_sources.sources.virtuous.virtuous import (
@@ -70,6 +72,63 @@ class TestPagination:
         assert len(result.rows) == 3
 
 
+def test_communications_fanout_resumes_on_the_next_child_page() -> None:
+    campaigns = ScriptedResponse(json={"list": [{"campaignId": 7}, {"campaignId": 8}], "total": 2})
+    first_page = [{"communicationId": offset + 1, "campaignId": 7} for offset in range(1000)]
+    remaining_row = {"communicationId": 1001, "campaignId": 7}
+    next_campaign_row = {"communicationId": 1002, "campaignId": 8}
+    last_page = ScriptedResponse(json={"list": [remaining_row], "total": 1001})
+    next_campaign_page = ScriptedResponse(json={"list": [next_campaign_row], "total": 1})
+    result = _driver().run(
+        "communications",
+        [campaigns, ScriptedResponse(json={"list": first_page, "total": 1001}), last_page, next_campaign_page],
+    )
+
+    assert result.raised is None
+    assert result.rows == [*first_page, remaining_row, next_campaign_row]
+
+    resumed = _driver().run(
+        "communications", [campaigns, last_page, next_campaign_page], resume_state=result.committed_states[0]
+    )
+
+    assert resumed.raised is None
+    assert resumed.paths == [
+        "/api/Campaign/Query",
+        "/api/Communication/ByCampaign/7",
+        "/api/Communication/ByCampaign/8",
+    ]
+    assert resumed.params("skip") == ["0", "1000", "0"]
+    assert resumed.rows == [remaining_row, next_campaign_row]
+
+
+@pytest.mark.parametrize("total", [1000, None])
+def test_communications_page_cap_fails_instead_of_publishing_an_incomplete_refresh(
+    monkeypatch: pytest.MonkeyPatch, total: int | None
+) -> None:
+    monkeypatch.setattr(virtuous, "COMMUNICATIONS_MAX_PAGES", 1)
+    rows = [{"communicationId": offset + 1} for offset in range(1000)]
+
+    with capture_logs() as logs:
+        result = _driver().run(
+            "communications",
+            [
+                ScriptedResponse(json={"list": [{"campaignId": 7}], "total": 1}),
+                ScriptedResponse(json={"list": rows, "total": total}),
+            ],
+        )
+
+    assert result.paths == ["/api/Campaign/Query", "/api/Communication/ByCampaign/7"]
+    cap_logs = [entry for entry in logs if entry["event"] == "virtuous_communications_page_cap_reached"]
+    if total is None:
+        assert isinstance(result.raised, ValueError)
+        assert result.rows == []
+        assert [entry["campaign_id"] for entry in cap_logs] == ["7"]
+    else:
+        assert result.raised is None
+        assert result.rows == rows
+        assert cap_logs == []
+
+
 class TestIncrementalRequestShaping:
     @pytest.mark.parametrize(
         ("schema", "inputs", "expected_groups"),
@@ -80,7 +139,7 @@ class TestIncrementalRequestShaping:
                 _last_modified_condition("2024-03-09"),
             ),
             (
-                "contact_individuals",
+                "volunteer_opportunities",
                 {
                     "incremental_field": "modifiedDateTimeUtc",
                     "db_incremental_field_last_value": datetime(2024, 1, 1, 23, 59, tzinfo=UTC),

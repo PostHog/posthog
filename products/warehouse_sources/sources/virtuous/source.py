@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.virtuous._config import VirtuousSourceConfig
 from products.warehouse_sources.sources.virtuous.settings import ENDPOINTS, INCREMENTAL_FIELDS
 from products.warehouse_sources.sources.virtuous.virtuous import (
+    COMMUNICATIONS_PAGE_LIMIT_ERROR,
     VirtuousResumeConfig,
     validate_credentials as validate_virtuous_credentials,
     virtuous_source,
@@ -47,6 +48,10 @@ class VirtuousSource(ResumableSource[VirtuousSourceConfig, VirtuousResumeConfig]
             "403 Client Error: Forbidden for url: https://api.virtuoussoftware.com": (
                 "Your Virtuous API key doesn't have permission to read this data. Give the key's "
                 "permission group read access in Virtuous, or turn off this table."
+            ),
+            COMMUNICATIONS_PAGE_LIMIT_ERROR: (
+                "A Virtuous campaign exceeds the communications page limit. "
+                "Contact PostHog support before you re-enable the communications table."
             ),
         }
 
