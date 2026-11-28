@@ -74,6 +74,18 @@ export type { BoxRect } from './core/types'
 export { BoxPlotTooltip } from './charts/BoxPlot/BoxPlotTooltip'
 export type { BoxPlotTooltipProps } from './charts/BoxPlot/BoxPlotTooltip'
 
+// Violin plot
+export { ViolinPlot } from './charts/ViolinPlot/ViolinPlot'
+export type {
+    ViolinPlotAdaptedMeta,
+    ViolinPlotConfig,
+    ViolinPlotProps,
+    ViolinPlotTooltipContext,
+} from './charts/ViolinPlot/ViolinPlot'
+export type { ViolinPlotDatum, ViolinPlotSeries, ViolinSummary } from './charts/ViolinPlot/types'
+export { ViolinPlotTooltip } from './charts/ViolinPlot/ViolinPlotTooltip'
+export type { ViolinPlotTooltipProps } from './charts/ViolinPlot/ViolinPlotTooltip'
+
 // Heatmap
 export { Heatmap } from './charts/Heatmap/Heatmap'
 export type {
