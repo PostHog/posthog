@@ -47,7 +47,8 @@ class TestResolveAIGatewayConfig:
         [
             (AI_GATEWAY_URL, "", "must be set together"),
             ("", AI_GATEWAY_KEY, "must be set together"),
-            ("https://ai-gateway.example", AI_GATEWAY_KEY, "OpenAI base path"),
+            ("https://ai-gateway.example", AI_GATEWAY_KEY, "path must be /v1"),
+            ("https://ai-gateway.example/stamphog/v1", AI_GATEWAY_KEY, "got /stamphog/v1"),
         ],
     )
     def test_misconfig_falls_back_to_none_and_logs(self, url, key, reason):
@@ -66,9 +67,9 @@ class TestResolveAIGatewayConfig:
         [
             (AI_GATEWAY_URL, True),
             ("http://ai-gateway.example/v1", False),
-            ("http://localhost:3308/v1", True),
-            ("http://127.0.0.1:3308/v1", True),
-            ("http://[::1]:3308/v1", True),
+            ("http://localhost:8080/v1", True),
+            ("http://127.0.0.1:8080/v1", True),
+            ("http://[::1]:8080/v1", True),
             ("http://localhost.example.com/v1", False),
         ],
     )
@@ -336,7 +337,7 @@ class TestBuildersRequireGoGateway:
         [
             ("", "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured.*bin/setup-gateway-e2e"),
             (AI_GATEWAY_URL, "", "AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be set together"),
-            ("https://ai-gateway.example", AI_GATEWAY_KEY, "AI_GATEWAY_URL must include the OpenAI base path"),
+            ("https://ai-gateway.example", AI_GATEWAY_KEY, "AI_GATEWAY_URL path must be /v1.*got /$"),
         ],
         ids=["unset", "half_applied", "missing_v1"],
     )
@@ -374,7 +375,12 @@ class TestBuildAIGatewayOpenAIClient:
         ("url", "api_key", "message"),
         [
             ("", "pha_user_token", "AI_GATEWAY_URL is not set"),
-            ("https://ai-gateway.example", "pha_user_token", "AI_GATEWAY_URL must end with /v1"),
+            ("https://ai-gateway.example", "pha_user_token", "AI_GATEWAY_URL path must be /v1.*got /$"),
+            (
+                "https://ai-gateway.example/stamphog/v1",
+                "pha_user_token",
+                "AI_GATEWAY_URL path must be /v1.*got /stamphog/v1",
+            ),
             (AI_GATEWAY_URL, "", "api_key is required"),
         ],
     )

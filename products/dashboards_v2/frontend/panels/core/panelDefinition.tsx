@@ -1,8 +1,8 @@
 import type { ComponentType } from 'react'
 
-import type { ContentPanel, SavedPanel } from '../../dashboard/document/dashboardTypes'
 import type { MenuAction } from '../../menu/menuAction'
 import { parseOnce } from '../../schema/parseOnce'
+import { type ContentPanel, type SavedPanel } from './panelSchema'
 import { type PanelSpec, type PanelTypeSpec, definePanelSpec } from './panelSpec'
 
 export type AddTileOption<Config> = {
@@ -28,8 +28,6 @@ export type PanelDefinition<Config, Type extends string = string> = PanelSpec<Co
     Component: ComponentType<PanelComponentProps<Config>>
     /** Shows while `Component` suspends. Without it, the tile shows `PanelLoading`. */
     Loading?: ComponentType<{ panel: ContentPanel<Config> }>
-    /** Shown in place of `Component` while the host has no real data. Left out, the panel shows its content. */
-    SampleData?: ComponentType<{ panel: ContentPanel<Config> }>
     /** Controls in the tile's header, beside the title, such as an interval picker or an "Open as insight" button. */
     HeaderExtra?: ComponentType<{ panel: ContentPanel<Config> }>
     Footer?: ComponentType<{ panel: ContentPanel<Config> }>
@@ -52,7 +50,6 @@ export type PanelType<Type extends string = string> = PanelTypeSpec<Type> & {
     addTileOptions: { label: string; create: () => SavedPanel }[]
     Component: SavedComponent
     Loading?: SavedPart
-    SampleData?: SavedPart
     HeaderExtra?: SavedPart
     Footer?: SavedPart
     menuActions?: (
@@ -92,7 +89,6 @@ export function definePanel<Config, const Type extends string>(
             return typed && <Component panel={typed} setConfig={setConfig} />
         },
         Loading: part(definition.Loading),
-        SampleData: part(definition.SampleData),
         HeaderExtra: part(definition.HeaderExtra),
         Footer: part(definition.Footer),
         menuActions:

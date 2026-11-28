@@ -19,6 +19,7 @@ function answered(days: number[]): Record<number, string> {
 }
 
 const LEAF_REACH = 26
+const ARROW_CLEARANCE = 10
 
 const STATES = {
     'nothing open': { progress: { opened: [], answers: {} }, today: 1 },
@@ -97,7 +98,7 @@ describe('adventFlowLayout', () => {
     })
 
     it.each(cases)(
-        'routes each edge from tile edge to tile edge, square, through no tile or caption in %s with %s',
+        'routes each edge from tile edge to tile edge, square, through no tile or caption, apart from the other arrows into its tile in %s with %s',
         (orientation, state) => {
             const layout = layoutOf(state, orientation)
             const byId = new Map(layout.nodes.map((node) => [node.id, node]))
@@ -122,7 +123,19 @@ describe('adventFlowLayout', () => {
                 .filter((node) => node.id !== 'trigger' && !layout.edges.some((edge) => edge.target === node.id))
                 .map((node) => node.id)
 
-            expect({ faults, unreached }).toEqual({ faults: [], unreached: [] })
+            const crowded = layout.nodes.flatMap((node) => {
+                const ends = layout.edges
+                    .filter((edge) => edge.target === node.id)
+                    .map((edge) => edge.points[edge.points.length - 1])
+                const touch = ends.some((end, index) =>
+                    ends
+                        .slice(index + 1)
+                        .some((other) => Math.hypot(end.x - other.x, end.y - other.y) < ARROW_CLEARANCE)
+                )
+                return touch ? [node.id] : []
+            })
+
+            expect({ faults, unreached, crowded }).toEqual({ faults: [], unreached: [], crowded: [] })
         }
     )
 
@@ -148,20 +161,28 @@ describe('adventFlowLayout', () => {
         )
     })
 
-    it.each(ORIENTATIONS)('moves nothing when doors open and questions get answered in %s', (orientation) => {
-        const before = layoutOf('nothing open', orientation)
-        const after = layoutOf('every door open', orientation)
-        const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
-        const routeOf = new Map(before.edges.map((edge) => [edge.id, edge.points]))
+    it.each(ORIENTATIONS)(
+        'keeps every tile 70 × 74 and moves nothing when doors open and questions get answered in %s',
+        (orientation) => {
+            const before = layoutOf('nothing open', orientation)
+            const after = layoutOf('every door open', orientation)
+            const placeOf = new Map(before.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }]))
+            const routeOf = new Map(
+                before.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])
+            )
 
-        expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
-            after.nodes.map((node) => [node.id, placeOf.get(node.id)])
-        )
-        expect(after.edges.map((edge) => [edge.id, edge.points])).toEqual(
-            after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
-        )
-        expect([after.width, after.height]).toEqual([before.width, before.height])
-    })
+            expect(after.nodes.map((node) => [node.id, { tile: node.tile, caption: node.caption }])).toEqual(
+                after.nodes.map((node) => [node.id, placeOf.get(node.id)])
+            )
+            expect(after.edges.map((edge) => [edge.id, { points: edge.points, labelAt: edge.labelAt }])).toEqual(
+                after.edges.map((edge) => [edge.id, routeOf.get(edge.id)])
+            )
+            expect([after.width, after.height]).toEqual([before.width, before.height])
+            expect(
+                new Set([...before.nodes, ...after.nodes].map(({ tile }) => `${tile.width} × ${tile.height}`))
+            ).toEqual(new Set(['70 × 74']))
+        }
+    )
 
     it('puts the hover label of a desktop door on its right, or on its left at the right edge, clear of the leaf', () => {
         const layout = layoutOf('nothing open', 'rows')

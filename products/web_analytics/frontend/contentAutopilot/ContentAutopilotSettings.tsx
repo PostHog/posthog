@@ -3,6 +3,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@post
 import { AiVisibilityAddBrandForm } from './AiVisibilityAddBrandForm'
 import { AiVisibilityBrandsSetting } from './AiVisibilityBrandsSetting'
 import { AiVisibilityEnginesSetting } from './AiVisibilityEnginesSetting'
+import { AiVisibilityTopicsSetting } from './AiVisibilityTopicsSetting'
 
 const SECTIONS = [
     {
@@ -18,6 +19,13 @@ const SECTIONS = [
                 <AiVisibilityBrandsSetting />
             </>
         ),
+    },
+    {
+        title: 'Topics',
+        description:
+            'Topics group your prompts in the overview and the prompt list. Rename, merge or remove a topic here, or set the topic of several prompts at once from the prompt list.',
+        dataAttr: 'content-autopilot-topics-card',
+        content: <AiVisibilityTopicsSetting />,
     },
     {
         title: 'Engines',

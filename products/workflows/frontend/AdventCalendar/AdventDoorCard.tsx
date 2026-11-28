@@ -1,6 +1,6 @@
 import './AdventCalendar.scss'
 
-import { CSSProperties } from 'react'
+import { CSSProperties, HTMLAttributes } from 'react'
 
 import { IconX } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
@@ -34,6 +34,8 @@ export interface AdventDoorCardProps {
     stage: { width: number; height: number }
     isOpen: boolean
     isPinned: boolean
+    isDialog?: boolean
+    isClosing?: boolean
     onPin: (doorId: string) => void
     onAnswer: (doorId: string, optionId: string) => void
     onTipClick: (day: number) => void
@@ -100,6 +102,7 @@ function headline(door: AdventDoor): { title: string; detail: string | null } {
 
 function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: boolean }): JSX.Element {
     const { title, detail } = headline(door)
+    const labelId = `advent-door-card-title-${door.day}`
     return (
         <div
             className={cn(
@@ -112,9 +115,14 @@ function AdventCardText({ door, withRaffle }: { door: AdventDoor; withRaffle: bo
                     {adventWeekday(door.day)}
                 </span>
             )}
-            {title && <span className="text-sm font-semibold leading-tight">{title}</span>}
+            {title && (
+                <span id={labelId} className="text-sm font-semibold leading-tight">
+                    {title}
+                </span>
+            )}
             {detail && (
                 <span
+                    id={title ? undefined : labelId}
                     className={cn(
                         'text-xs leading-snug text-secondary',
                         door.lockReason === 'date' && 'whitespace-nowrap'
@@ -145,6 +153,14 @@ function AdventCardBody({
     )
 }
 
+function dialogProps(day: number, isPinned: boolean, isClosing = false): HTMLAttributes<HTMLDivElement> {
+    return {
+        role: isPinned ? 'dialog' : undefined,
+        'aria-labelledby': isPinned ? `advent-door-card-title-${day}` : undefined,
+        ...(isClosing ? { inert: '' } : {}),
+    }
+}
+
 export function AdventDoorCard({
     door,
     shares,
@@ -152,6 +168,8 @@ export function AdventDoorCard({
     stage,
     isOpen,
     isPinned,
+    isDialog,
+    isClosing,
     onPin,
     onAnswer,
     onTipClick,
@@ -168,6 +186,7 @@ export function AdventDoorCard({
             style={style}
             data-attr="advent-door-card"
             data-open={isOpen}
+            {...dialogProps(door.day, isPinned && !!isDialog, isClosing)}
             onMouseEnter={onMouseEnter}
             onMouseLeave={onMouseLeave}
         >
@@ -185,6 +204,7 @@ export function AdventDoorCard({
                     zoom={face.zoom}
                     tint={face.tint}
                     style={faceShift}
+                    tabIndex={isPinned ? -1 : undefined}
                     onClick={() => onPin(door.id)}
                 />
                 <AdventCardText door={door} withRaffle={detailsBesideFace} />

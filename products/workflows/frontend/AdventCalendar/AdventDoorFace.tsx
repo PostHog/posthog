@@ -13,10 +13,11 @@ export interface AdventDoorFaceProps {
     zoom: number
     style?: CSSProperties
     tint?: string
+    tabIndex?: number
     onClick: () => void
 }
 
-export function AdventDoorFace({ door, size, zoom, style, tint, onClick }: AdventDoorFaceProps): JSX.Element {
+export function AdventDoorFace({ door, size, zoom, style, tint, tabIndex, onClick }: AdventDoorFaceProps): JSX.Element {
     const color = tint ?? adventDoorColor(door)
     return (
         <button
@@ -24,6 +25,7 @@ export function AdventDoorFace({ door, size, zoom, style, tint, onClick }: Adven
             className="AdventCard__face"
             style={{ ...style, width: size, height: size }}
             aria-label={`Door ${door.day}`}
+            tabIndex={tabIndex}
             onClick={onClick}
         >
             {door.status === 'open' && door.reward ? (

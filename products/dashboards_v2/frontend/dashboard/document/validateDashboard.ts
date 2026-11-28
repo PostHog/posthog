@@ -1,6 +1,7 @@
 import { z } from 'zod'
 
 import { type FilterSpec, findFilterType, hasFilterOn } from '../../filters/filterSpec'
+import { sharedPanelSchema, type SavedPanel } from '../../panels/core/panelSchema'
 import { type PanelTypeSpec, findPanel, sizeOfPanels } from '../../panels/core/panelSpec'
 import {
     dashboardDocumentSchema,
@@ -9,11 +10,10 @@ import {
     linkTabSchema,
     ONE_GRID_TAB,
     sectionPanelSchema,
-    sharedPanelSchema,
     tileSchema,
     panelRefSchema,
 } from './dashboardSchema'
-import { type DashboardDocument, type SavedPanel, type SavedFilter, GRID } from './dashboardTypes'
+import { type DashboardDocument, type SavedFilter, GRID } from './dashboardTypes'
 
 // Deeper than anyone builds by hand, and shallow enough that walking a hostile document cannot overflow the stack.
 export const MAX_SECTION_DEPTH = 10
@@ -57,11 +57,11 @@ const dashboardHeadSchema = dashboardDocumentSchema.extend({
         .refine((tabs) => tabs.some((tab) => 'tiles' in tab), ONE_GRID_TAB),
 })
 
-// Loading walks every section's tiles, so a section without them is not a dashboard's shape.
+// Loading walks the tiles of any panel that has them, so only a section may, and it must.
 function sectionsHaveTiles(tiles: TileHead[], depth: number): boolean {
     return tiles.every((tile) => {
         if (!('type' in tile.panel) || tile.panel.type !== 'section') {
-            return true
+            return !('tiles' in tile.panel)
         }
         const section = sectionHeadSchema.safeParse(tile.panel)
         return depth < MAX_SECTION_DEPTH && section.success && sectionsHaveTiles(section.data.tiles, depth + 1)

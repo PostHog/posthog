@@ -235,6 +235,24 @@ describe('URL Routing', () => {
         })
     })
 
+    describe('requestHeaderNames parsing', () => {
+        it('lists header names in order, without their values', () => {
+            const request = new Request('https://example.com/mcp', {
+                headers: {
+                    Authorization: 'Bearer phx_test',
+                    'User-Agent': 'openai-mcp/1.0.0 (Codex)',
+                    'X-Example-Session': 'session-value',
+                    'X-Session-a1b2c3d4e5f6': '1',
+                },
+            })
+            expect(parseRequestProperties(request, {}).requestHeaderNames).toEqual([
+                'authorization',
+                'user-agent',
+                'x-example-session',
+            ])
+        })
+    })
+
     describe('mcpVendorClient parsing', () => {
         it('captures x-anthropic-client into mcpVendorClient', () => {
             const request = new Request('https://example.com/mcp', {

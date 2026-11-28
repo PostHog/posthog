@@ -1,0 +1,42 @@
+id: email-worker-terminated
+version: 1
+clock: real
+profile: synthetic-rollout
+seed: 8
+seedable: true
+setup:
+    teams: 1
+drive:
+    for: 227s
+    warmUp: 160s
+    traffic:
+        - name: event_email
+        - name: transactional_email
+valves:
+    - valve: role.terminate
+      target: cdp-cyclotron-worker-email
+      dose: {}
+      at: 197s
+      when:
+          name: edge_accepted
+          params:
+              channel: ses
+              share: 0.5
+      for: 10s
+convergeWithin: 4m
+invariants:
+    - name: at_least_once
+    - name: duplicate_sends
+    - name: refused_at_intake
+    - name: no_loss
+gates:
+    duplicate_sends: 0
+    refused_at_intake: 0
+measure:
+    - name: role_exit_ms
+    - name: lease_reclaim_ms
+    - name: resent_invocations
+    - name: role_cpu_seconds
+    - name: role_rss_max_bytes
+    - name: delivery_latency_ms
+pair: true

@@ -392,21 +392,21 @@ export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCap
 
 export const organizationsProjectsCreateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedHostsItemMax = 2000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax = 1000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedHostsMax = 1000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedIpsItemMax = 2000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedIpsMax = 1000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedHostsItemMax = 2000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedHostsMax = 1000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedIpsItemMax = 2000
 
-export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
+export const organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedIpsMax = 1000
 
 export const organizationsProjectsCreateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsCreateBodyDefaultDataThemeMax = 2147483647
@@ -3021,35 +3021,40 @@ export const OrganizationsProjectsCreateBody = () => zod
                         'When enabled, a new feature flag needs at least one tag, and a tagged flag cannot lose its last one. A create that declares it comes from a survey, experiment, early access feature, product tour, or web experiment is exempt, because those forms have no tag input. The caller sets that declaration, so a flag can still be created without a tag.'
                     ),
                 blocked_hosts: zod
-                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsItemMax))
-                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedHostsMax)
+                    .array(
+                        zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedHostsItemMax)
+                    )
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.'
                     ),
                 blocked_ips: zod
-                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsItemMax))
-                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigBlockedIpsMax)
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneBlockedIpsMax)
                     .optional()
                     .describe(
                         'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
                     ),
                 allowed_hosts: zod
-                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsItemMax))
-                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .array(
+                        zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedHostsItemMax)
+                    )
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedHostsMax)
                     .optional()
                     .describe(
-                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.'
                     ),
                 allowed_ips: zod
-                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsItemMax))
-                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .array(zod.string().max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedIpsItemMax))
+                    .max(organizationsProjectsCreateBodyFeatureFlagPolicyConfigOneAllowedIpsMax)
                     .optional()
                     .describe(
-                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins."
                     ),
             })
-            .optional(),
+            .optional()
+            .describe('A list sent replaces the saved one. Omitted fields are kept.'),
         base_currency: zod
             .enum([
                 'AED',
@@ -3355,21 +3360,21 @@ export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequ
 
 export const organizationsProjectsPartialUpdateBodyWorkflowsConfigMarketingFrequencyCapHoldHoursMax = 168
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax = 2000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedHostsItemMax = 2000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax = 1000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedHostsMax = 1000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax = 2000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedIpsItemMax = 2000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax = 1000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedIpsMax = 1000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax = 2000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedHostsItemMax = 2000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax = 1000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedHostsMax = 1000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax = 2000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedIpsItemMax = 2000
 
-export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax = 1000
+export const organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedIpsMax = 1000
 
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMin = -2147483648
 export const organizationsProjectsPartialUpdateBodyDefaultDataThemeMax = 2147483647
@@ -5997,18 +6002,20 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .array(
                         zod
                             .string()
-                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsItemMax)
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedHostsItemMax)
                     )
-                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedHostsMax)
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedHostsMax)
                     .optional()
                     .describe(
-                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with the Origin header, or with Referer when Origin is missing or names no domain.'
+                        'Domains to block from \/flags requests, up to 100. A domain also covers its subdomains. It is compared with Origin, or with Referer when Origin names no domain.'
                     ),
                 blocked_ips: zod
                     .array(
-                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsItemMax)
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedIpsItemMax)
                     )
-                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigBlockedIpsMax)
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneBlockedIpsMax)
                     .optional()
                     .describe(
                         'IP addresses or CIDR ranges to block from \/flags requests, up to 100. The widest ranges are \/8 for IPv4 and \/16 for IPv6.'
@@ -6017,24 +6024,27 @@ export const OrganizationsProjectsPartialUpdateBody = () => zod
                     .array(
                         zod
                             .string()
-                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsItemMax)
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedHostsItemMax)
                     )
-                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedHostsMax)
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedHostsMax)
                     .optional()
                     .describe(
-                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests with no Origin and no Referer, such as those from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosting domains such as vercel.app are rejected. A blocked domain wins.'
+                        'Domains allowed to make \/flags requests, up to 100. When not empty, pages whose domain is not listed or is hidden get no flags. Requests without Origin or Referer, such as from server-side and mobile SDKs, are not checked. Same rules as blocked_hosts, but shared hosts such as vercel.app are rejected. A blocked domain wins.'
                     ),
                 allowed_ips: zod
                     .array(
-                        zod.string().max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsItemMax)
+                        zod
+                            .string()
+                            .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedIpsItemMax)
                     )
-                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigAllowedIpsMax)
+                    .max(organizationsProjectsPartialUpdateBodyFeatureFlagPolicyConfigOneAllowedIpsMax)
                     .optional()
                     .describe(
-                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, every other caller gets no flags, including servers and browsers on allowed domains. Behind a reverse proxy, the proxy's address is checked, so requests through the managed reverse proxy get no flags. Entries follow the same rules as blocked_ips. A blocked address wins."
+                        "IP addresses or CIDR ranges allowed to make \/flags requests, up to 100. When not empty, all other callers get no flags, even browsers on allowed domains. Add IPv6 addresses too, as callers may connect over IPv6. Behind a proxy, such as the managed reverse proxy, the proxy's address is checked. Same entry rules as blocked_ips. A blocked address wins."
                     ),
             })
-            .optional(),
+            .optional()
+            .describe('A list sent replaces the saved one. Omitted fields are kept.'),
         base_currency: zod
             .enum([
                 'AED',

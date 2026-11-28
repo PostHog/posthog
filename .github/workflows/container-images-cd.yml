@@ -201,7 +201,7 @@ jobs:
               if: steps.preflight.outputs.digest == ''
               continue-on-error: true
               timeout-minutes: 5
-              uses: PostHog/resolve-release@9366d7bef40ea283187c7c582288c7070838d836 # v2.0.0
+              uses: PostHog/resolve-release@8901b767fc6ff923b326c27ad4ed9d919a02c186 # v2.0.0
               with:
                   hog-version: 0.3.0
                   hog-sha256: 9dff37a41ec5bf947c190fc4760e95a051be9ea7744eb3d0f4a4e7be695674bc

@@ -1,6 +1,6 @@
-import type { PanelQuery } from '../dashboard/document/dashboardSchema'
-import type { TimeRange } from '../dashboard/document/dashboardTypes'
 import type { AppliedFilter } from '../filters/filtersContext'
+import { type TimeRange } from '../filters/time/timeRangeSchema'
+import { type PanelQuery } from './querySchema'
 
 /** A query's result in one shape every panel reads, so a chart can switch kind without running its query again. */
 export type DataFrame = {
@@ -30,6 +30,8 @@ export type FrameMeta = {
 /** What a panel asks the host's runner to run. The time range is the panel's own, or the one around it. */
 export type QueryRequest = {
     query: PanelQuery
+    /** The id of the project the query reads. Left out, it reads the project the host's runner was made for. */
+    project?: number
     /** Left out, the query runs on the range saved in it. */
     time?: TimeRange
     legend?: string

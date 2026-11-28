@@ -13,7 +13,9 @@
                     <a href="{{ rendered_operation.url }}"
                        class="quill-button {% if operation.danger %}quill-button--variant-destructive-outline{% else %}quill-button--variant-outline{% endif %} quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">{{ operation.label }}</a>
                 {% else %}
-                    <form method="post" action="{{ rendered_operation.url }}">
+                    <form method="post"
+                          action="{{ rendered_operation.url }}"
+                          {% if operation.handoff %}data-console-handoff="{{ operation.handoff.url }}" data-console-handoff-tool="{{ operation.handoff.tool }}"{% endif %}>
                         {% csrf_token %}
                         <button type="submit"
                                 class="quill-button quill-button--variant-outline quill-button--size-sm group/button inline-flex shrink-0 items-center justify-center whitespace-nowrap">
@@ -27,6 +29,9 @@
                     {% endif %}
                     {{ operation.description }}
                     {% if not rendered_operation.allowed %}Only {{ rendered_operation.gate.label }} can run this.{% endif %}
+                    {% if operation.handoff and rendered_operation.allowed %}
+                        <span data-console-handoff-status role="status"></span>
+                    {% endif %}
                 </span>
             </li>
         {% endwith %}

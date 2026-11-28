@@ -2,31 +2,59 @@ import { RefObject, useEffect, useRef } from 'react'
 
 import { AdventFlowNode } from './adventFlowLayout'
 
+const CARD = '[data-attr="advent-door-card"]'
+
 // The closing card stays mounted while it slides out, so focus on one of its links is lost when it unmounts.
 function focusIsLost(root: HTMLElement): boolean {
     const focused = document.activeElement
-    return (
-        !focused ||
-        focused === document.body ||
-        !!root.querySelector('[data-attr="advent-door-card"]')?.contains(focused)
-    )
+    return !focused || focused === document.body || !!root.querySelector(CARD)?.contains(focused)
 }
 
 const doorOfNode = (nodeId: string): string => `button[aria-describedby="advent-flow-caption-${nodeId}"]`
 
-// The card renders after the track, so without this a keyboard user tabs through every later door
-// before reaching the answers, and on the phone the first offscreen door scrolls the card away.
+const isScrollStop = (body: HTMLElement): boolean =>
+    body.scrollHeight > body.clientHeight && !body.querySelector('button, a[href]')
+
+function lastStopOf(card: Element | null): HTMLElement | null {
+    const stops = Array.from(card?.querySelectorAll<HTMLElement>('button, a[href]') ?? []).filter(
+        (stop) => stop.tabIndex >= 0
+    )
+    const body = card?.querySelector<HTMLElement>('.AdventCard__body')
+    return body && isScrollStop(body) ? body : (stops[stops.length - 1] ?? null)
+}
+
+function markScrollStop(card: Element | null): void {
+    const body = card?.querySelector<HTMLElement>('.AdventCard__body')
+    if (!body) {
+        return
+    }
+    if (isScrollStop(body)) {
+        body.tabIndex = 0
+    } else {
+        body.removeAttribute('tabindex')
+    }
+}
+
+export interface AdventCardGuards {
+    onFocusStart: () => void
+    onFocusEnd: () => void
+}
+
 export function useAdventCardFocus(
     stage: RefObject<HTMLElement>,
     isPinned: boolean,
     cardNode: AdventFlowNode | null,
-    onTabOut: () => void
-): void {
+    onPin: (doorId: string) => void
+): AdventCardGuards {
     const lastPinned = useRef<string | null>(null)
+    const lastShown = useRef<string | null>(null)
+    const isKeyboard = useRef(false)
+    const shownNodeId = cardNode?.id ?? null
     const pinnedNodeId = isPinned ? (cardNode?.id ?? null) : null
     // An answer swaps the focused option for the shares while the card stays pinned, so a change of the door's
     // status runs the effect again.
     const pinnedStatus = isPinned ? cardNode?.door?.status : undefined
+    const hoveredDoorId = isPinned ? null : (cardNode?.door?.id ?? null)
 
     useEffect(() => {
         const root = stage.current
@@ -34,46 +62,63 @@ export function useAdventCardFocus(
             return
         }
         if (pinnedNodeId) {
+            markScrollStop(root.querySelector(CARD))
             if (lastPinned.current !== pinnedNodeId || document.activeElement === document.body) {
                 root.querySelector<HTMLElement>('[data-attr="advent-door-card-close"]')?.focus({ preventScroll: true })
             }
             lastPinned.current = pinnedNodeId
+            lastShown.current = shownNodeId
             return
         }
-        const nodeId = lastPinned.current
+        const nodeId = lastPinned.current ?? (lastShown.current !== shownNodeId ? lastShown.current : null)
         lastPinned.current = null
+        lastShown.current = shownNodeId
         if (nodeId && focusIsLost(root)) {
             root.querySelector<HTMLElement>(doorOfNode(nodeId))?.focus({
                 preventScroll: true,
             })
         }
-    }, [stage, pinnedNodeId, pinnedStatus])
+    }, [stage, pinnedNodeId, shownNodeId, pinnedStatus])
 
-    // Focus moved into the card, which sits after every door, so Tab from its last control goes on to the door
-    // after the pinned one, and Shift+Tab from its first control back to the pinned door. Both close the card.
     useEffect(() => {
         const root = stage.current
-        if (!root || !pinnedNodeId) {
+        if (!root) {
             return
         }
         const onKeyDown = (event: KeyboardEvent): void => {
-            const controls = root.querySelectorAll('[data-attr="advent-door-card"] :is(button, a[href])')
-            const edge = event.shiftKey ? controls[0] : controls[controls.length - 1]
-            if (event.key !== 'Tab' || document.activeElement !== edge) {
-                return
-            }
-            const doors = Array.from(
-                root.querySelectorAll<HTMLElement>('button[aria-describedby^="advent-flow-caption-"]')
-            )
-            const pinned = doors.findIndex((door) => door.matches(doorOfNode(pinnedNodeId)))
-            const next = pinned >= 0 ? doors[pinned + (event.shiftKey ? 0 : 1)] : undefined
-            onTabOut()
-            if (next) {
-                event.preventDefault()
-                next.focus()
+            isKeyboard.current = event.key === 'Tab'
+            if (isKeyboard.current && !hoveredDoorId) {
+                markScrollStop(root.querySelector(CARD))
             }
         }
-        root.addEventListener('keydown', onKeyDown)
-        return () => root.removeEventListener('keydown', onKeyDown)
-    }, [stage, pinnedNodeId, onTabOut])
+        const onPointerDown = (): void => {
+            isKeyboard.current = false
+        }
+        const onFocusIn = (event: FocusEvent): void => {
+            if (hoveredDoorId && isKeyboard.current && (event.target as Element).closest(CARD)) {
+                onPin(hoveredDoorId)
+            }
+        }
+        window.addEventListener('keydown', onKeyDown, true)
+        window.addEventListener('pointerdown', onPointerDown, true)
+        root.addEventListener('focusin', onFocusIn)
+        return () => {
+            window.removeEventListener('keydown', onKeyDown, true)
+            window.removeEventListener('pointerdown', onPointerDown, true)
+            root.removeEventListener('focusin', onFocusIn)
+        }
+    }, [stage, hoveredDoorId, onPin])
+
+    const close = (): HTMLElement | null | undefined =>
+        stage.current?.querySelector<HTMLElement>(`${CARD} [data-attr="advent-door-card-close"]`)
+    return {
+        onFocusStart: () => {
+            const last = lastStopOf(stage.current?.querySelector(CARD) ?? null)
+            last?.focus()
+            if (document.activeElement !== last) {
+                close()?.focus()
+            }
+        },
+        onFocusEnd: () => close()?.focus(),
+    }
 }

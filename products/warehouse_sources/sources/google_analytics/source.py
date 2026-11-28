@@ -328,7 +328,7 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
 
         property_id = normalize_property_id(config.property_id)
         if not property_id.isdigit():
-            # Name the two IDs users most often paste by mistake — both are non-numeric and
+            # Name the IDs users most often paste by mistake — they are non-numeric and
             # look plausible, so the generic "use a numeric ID" hint leaves them hunting.
             upper_id = property_id.upper()
             if upper_id.startswith("G-"):
@@ -337,6 +337,12 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
                     f"'{config.property_id}' looks like a Measurement ID (from your GA4 data stream / "
                     "website tag), not a property ID. Use the numeric property ID from Google Analytics "
                     "Admin → Property settings → Property details (e.g. '123456789').",
+                )
+            if upper_id.startswith("GTM-"):
+                return (
+                    False,
+                    "This is a Google Tag Manager container ID, not a GA4 property ID. Copy the numeric ID "
+                    "from Admin → Property settings → Property details in Google Analytics.",
                 )
             if upper_id.startswith("UA-"):
                 return (

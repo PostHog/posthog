@@ -12,6 +12,7 @@ import { emailTemplaterLogic } from 'scenes/hog-functions/email-templater/emailT
 
 import { emailDocumentFromValue } from '../emailDocument'
 import { renderEmailHtml } from '../renderEmailHtml'
+import { EmailEditorSwitchBackFeedback } from './EmailEditorSwitchBackFeedback'
 
 function captureSwitch(to: 'old' | 'new', emailType: string, source: string): void {
     // pinned: analytics event name and properties, renaming breaks dashboards
@@ -143,7 +144,10 @@ function OldEditorBar(): JSX.Element | null {
                 className="flex items-center justify-between gap-2 px-2 py-1 border-b shrink-0 flex-wrap"
                 data-attr="email-editor-old-bar"
             >
-                <span className="text-xs text-secondary">You're using the old editor.</span>
+                <span className="flex items-center gap-1">
+                    <span className="text-xs text-secondary">You're using the old editor.</span>
+                    <EmailEditorSwitchBackFeedback />
+                </span>
                 <LemonButton
                     size="xsmall"
                     type="secondary"

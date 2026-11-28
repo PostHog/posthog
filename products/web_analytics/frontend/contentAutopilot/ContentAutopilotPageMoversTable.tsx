@@ -6,7 +6,7 @@ import { AiVisibilityTable } from './AiVisibilityTable'
 import { ContentAutopilotCitationsLink } from './ContentAutopilotCitationsLink'
 import { ContentAutopilotKpiDelta } from './ContentAutopilotKpiDelta'
 import { ContentAutopilotRateBar } from './ContentAutopilotRateBar'
-import { moverDelta } from './movers'
+import { shareDelta } from './shares'
 
 /** The pages on your site that moved, gains first. A page opens the answers that cite it now. */
 export const ContentAutopilotPageMoversTable = ({
@@ -40,7 +40,7 @@ export const ContentAutopilotPageMoversTable = ({
                         <span className="block truncate font-semibold" title={url}>
                             {answers_citing > 0 ? (
                                 <ContentAutopilotCitationsLink
-                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded }}
+                                    lookup={{ kind: 'url', value: url, dateFrom, dateTo, branded, isOwnPage: true }}
                                     source="overview-movers"
                                     // A button sizes to its text, so it needs the cell's width to truncate.
                                     className="w-full"
@@ -82,7 +82,15 @@ export const ContentAutopilotPageMoversTable = ({
                 title: 'Change',
                 key: 'change',
                 align: 'right',
-                render: (_, { change }) => <ContentAutopilotKpiDelta delta={moverDelta(change, days)} />,
+                render: (_, { citation_rate, previous_citation_rate }) => (
+                    <ContentAutopilotKpiDelta
+                        delta={shareDelta(
+                            citation_rate,
+                            previous_citation_rate,
+                            `Change against the ${days} days before, in percentage points`
+                        )}
+                    />
+                ),
             },
         ]}
     />
