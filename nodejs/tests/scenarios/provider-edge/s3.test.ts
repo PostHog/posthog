@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { once } from 'node:events'
 import http from 'node:http'
 import { AddressInfo } from 'node:net'
+import { setTimeout as sleep } from 'node:timers/promises'
 
 import { getDefaultCdpConfig } from '~/cdp/config'
 import {
@@ -97,17 +98,23 @@ describe('the edge in front of the attachment store', () => {
         expect(await load(uploaded)).toEqual(uploaded.bytes)
     })
 
-    test.each<[string, CardFault[]]>([
-        ['alone', []],
-        ['behind a slowed store', [{ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND } }]],
+    test.each<[string, CardFault[], { op?: 'get' }]>([
+        ['alone', [], { op: 'get' }],
+        [
+            'behind a slowed store',
+            [{ name: 's3.slow', params: { bytesPerSecond: PACE_BYTES_PER_SECOND } }],
+            { op: 'get' },
+        ],
+        ['armed for every operation', [], {}],
     ])(
-        'answers the operation its fault matches with a server error %s, and passes every other one',
-        async (_, before) => {
+        'answers a download its fault matches with a server error %s, and passes every upload',
+        async (_, before, match) => {
             const uploaded = file()
+            const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
             before.forEach(fault)
-            fault({ name: 's3.status', params: { code: 503 }, match: { op: 'get' }, dose: { share: 1 } })
+            fault({ name: 's3.status', params: { code: 503 }, match, dose: { share: 1 } })
 
-            const answer = await upload(uploaded)
+            const answer = await put(slot, uploaded.bytes)
             const loaded = await load(uploaded).catch((error: unknown) => error)
 
             expect(answer.status).toBe(200)
@@ -132,57 +139,6 @@ describe('the edge in front of the attachment store', () => {
             settledBeforeAbort: false,
         })
         expect(await load(uploaded)).toEqual(uploaded.bytes)
-    })
-
-    test('keeps a counted server error for the next upload when one hangs up before its body ends', async () => {
-        const uploaded = file()
-        const status = fault({ name: 's3.status', params: { code: 503 }, match: { op: 'put' }, dose: { count: 1 } })
-        const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
-        if (slot.status !== 'upload') {
-            throw new Error(`expected an upload slot, got ${slot.status}`)
-        }
-        const partial = http.request(slot.url, {
-            method: slot.method,
-            headers: { ...slot.headers, expect: '100-continue' },
-        })
-        partial.on('error', () => undefined)
-        partial.flushHeaders()
-        await once(partial, 'continue')
-        partial.write(uploaded.bytes.subarray(0, FILE_BYTES / 2))
-        partial.destroy()
-
-        const answer = await upload(uploaded)
-
-        expect({ status: answer.status, answered: edge.firstAppliedAt(status) !== undefined }).toEqual({
-            status: 503,
-            answered: true,
-        })
-    })
-
-    test('passes an upload whose server error was released before its body ended', async () => {
-        const uploaded = file()
-        const status = fault({ name: 's3.status', params: { code: 503 }, match: { op: 'put' }, dose: { share: 1 } })
-        const [slot] = await store.prepareUploads(TEAM, [{ sha256: uploaded.sha256, size: uploaded.sizeBytes }])
-        if (slot.status !== 'upload') {
-            throw new Error(`expected an upload slot, got ${slot.status}`)
-        }
-        const upload = http.request(slot.url, {
-            method: slot.method,
-            headers: { ...slot.headers, expect: '100-continue' },
-        })
-        const answered = once(upload, 'response') as Promise<[http.IncomingMessage]>
-        upload.flushHeaders()
-        await once(upload, 'continue')
-        upload.write(uploaded.bytes.subarray(0, FILE_BYTES / 2))
-        edge.removeFault(status)
-        upload.end(uploaded.bytes.subarray(FILE_BYTES / 2))
-        const [answer] = await answered
-        answer.resume()
-
-        expect({ status: answer.statusCode, answered: edge.firstAppliedAt(status) }).toEqual({
-            status: 200,
-            answered: undefined,
-        })
     })
 
     test('drops its call to the store when the caller hangs up first, and passes the next call', async () => {
@@ -211,6 +167,81 @@ describe('the edge in front of the attachment store', () => {
         } finally {
             slowStore.closeAllConnections()
             await new Promise((resolve) => slowStore.close(resolve))
+        }
+    })
+
+    const storeAt = async (serve: http.RequestListener): Promise<{ proxy: string; close: () => Promise<void> }> => {
+        const store = http.createServer(serve)
+        await new Promise<void>((resolve) => store.listen(0, '127.0.0.1', resolve))
+        return {
+            proxy: await edge.s3ProxyOf(`http://127.0.0.1:${(store.address() as AddressInfo).port}/`),
+            close: async () => {
+                store.closeAllConnections()
+                await new Promise((resolve) => store.close(resolve))
+            },
+        }
+    }
+
+    test('passes an upload on to the store before its client sends the last byte', async () => {
+        let reached: () => void = () => undefined
+        const firstBytes = new Promise<'streamed'>((resolve) => (reached = () => resolve('streamed')))
+        const stored: Buffer[] = []
+        const { proxy, close } = await storeAt((req, res) => {
+            req.on('data', (chunk: Buffer) => {
+                stored.push(chunk)
+                reached()
+            })
+            req.once('end', () => res.end())
+        })
+        try {
+            const upload = http.request(`${proxy}/bucket/key`, { method: 'PUT', headers: { 'content-length': 8 } })
+            const answered = once(upload, 'response') as Promise<[http.IncomingMessage]>
+            upload.write('half')
+            const beforeLastByte = await Promise.race([
+                firstBytes,
+                sleep(2000).then(() => 'held until the last byte' as const),
+            ])
+            upload.end('rest')
+            const [answer] = await answered
+            answer.resume()
+
+            expect({ beforeLastByte, status: answer.statusCode, stored: Buffer.concat(stored).toString() }).toEqual({
+                beforeLastByte: 'streamed',
+                status: 200,
+                stored: 'halfrest',
+            })
+        } finally {
+            await close()
+        }
+    })
+
+    test('passes a download unpaced and unobserved when its slow fault was released before the store answered', async () => {
+        let asked: () => void = () => undefined
+        const reachedStore = new Promise<void>((resolve) => (asked = resolve))
+        const answers: http.ServerResponse[] = []
+        const { proxy, close } = await storeAt((_req, res) => {
+            answers.push(res)
+            asked()
+        })
+        try {
+            const slow = fault({ name: 's3.slow', params: { bytesPerSecond: 1000 }, match: { op: 'get' } })
+            const received = new Promise<number>((resolve, reject) => {
+                http.get(`${proxy}/bucket/key`, (answer) => {
+                    let bytes = 0
+                    answer.on('data', (chunk: Buffer) => (bytes += chunk.length))
+                    answer.once('end', () => resolve(bytes))
+                }).on('error', reject)
+            })
+            await reachedStore
+            edge.removeFault(slow)
+            answers[0].end(Buffer.alloc(FILE_BYTES))
+
+            expect({ received: await received, observed: edge.firstAppliedAt(slow) }).toEqual({
+                received: FILE_BYTES,
+                observed: undefined,
+            })
+        } finally {
+            await close()
         }
     })
 
