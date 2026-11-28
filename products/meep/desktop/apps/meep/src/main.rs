@@ -8,7 +8,6 @@ mod details;
 mod files;
 mod folds;
 mod github;
-mod linked;
 mod mcp_settings;
 mod navigation;
 mod overview;
@@ -18,6 +17,7 @@ mod previews;
 mod scroll_motion;
 mod shortcuts;
 mod sidebar;
+mod sources;
 #[cfg(feature = "demo-driver")]
 mod state_preview;
 mod tables;

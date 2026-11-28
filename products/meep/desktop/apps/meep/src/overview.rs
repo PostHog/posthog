@@ -255,7 +255,7 @@ impl Desktop {
                 let n = t.facts.iter().filter(|f| f.is_current()).count();
                 (Glyph::Pencil, n.to_string(), None)
             }
-            Tab::Linked => (Glyph::Link, t.context_sources.len().to_string(), None),
+            Tab::Sources => (Glyph::Link, t.context_sources.len().to_string(), None),
             Tab::Rules => (Glyph::ShieldCheck, t.rules.len().to_string(), None),
             Tab::Chat => return None,
         })
@@ -595,13 +595,13 @@ impl Desktop {
                     );
                 }
             }
-            Tab::Linked => {
+            Tab::Sources => {
                 for watch in &t.context_sources {
                     let key = watch.key.clone();
                     body = body.child(
                         line(
                             format!("ov-linked-{key}"),
-                            selected(&Detail::Linked(key.clone())),
+                            selected(&Detail::Source(key.clone())),
                         )
                         .child(ui::nav::glyph(source_glyph(&watch.kind), false))
                         .child(
@@ -614,7 +614,7 @@ impl Desktop {
                         .child(ui::caption(source_kind(&watch.kind)).flex_none())
                         .on_click(cx.listener(move |s, _, w, cx| {
                             s.go(
-                                Page::Topic(id, Tab::Linked, Some(Detail::Linked(key.clone()))),
+                                Page::Topic(id, Tab::Sources, Some(Detail::Source(key.clone()))),
                                 w,
                                 cx,
                             )
@@ -709,12 +709,12 @@ impl Desktop {
             kind,
             g.text.trim_end_matches('.').to_owned(),
         ))
-        .child(set::section("Progress", "", None, true))
+        .child(set::section("Progress", "", None, false))
         .child(progress)
     }
 
-    /// A linked context source as its own page.
-    pub(super) fn linked_page(&self, state: &TopicState, key: &str, cx: &Context<Self>) -> Div {
+    /// A context source as its own page.
+    pub(super) fn source_page(&self, state: &TopicState, key: &str, cx: &Context<Self>) -> Div {
         use super::topic_pages::{chevron, empty_group, nav_row};
         use meep_shell::settings as set;
         let id = state.topic.id;
@@ -722,7 +722,7 @@ impl Desktop {
         let Some(watch) = state.topic.context_sources.iter().find(|w| w.key == key) else {
             return page.child(empty_group(
                 "This source was unlinked",
-                "Open Linked to see the other sources.",
+                "Open Sources to see the others.",
             ));
         };
         let source = watch.id;
@@ -735,7 +735,7 @@ impl Desktop {
             .collect();
         let unlink = control("unlink-source", "Unlink", false, cx, move |s, w, cx| {
             if s.issue(id, Command::RemoveContextSource { source }) {
-                s.go(Page::Topic(id, Tab::Linked, None), w, cx)
+                s.go(Page::Topic(id, Tab::Sources, None), w, cx)
             }
         })
         .into_any_element();

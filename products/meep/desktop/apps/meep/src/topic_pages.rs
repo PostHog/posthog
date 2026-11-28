@@ -301,7 +301,7 @@ impl Desktop {
                 let hover = SharedString::from(format!("fact-{fid}"));
                 row(format!("fact-{fid}"))
                     .group(hover.clone())
-                    .items_start()
+                    .items_center()
                     .py(px(12.))
                     .child(glyph_tile(Glyph::Lightbulb))
                     .child(
@@ -439,7 +439,7 @@ impl Desktop {
             .child(checks)
             .child(section(
                 "Inbox",
-                "What reaches this topic's inbox.",
+                "What reaches this topic’s inbox.",
                 None,
                 false,
             ))

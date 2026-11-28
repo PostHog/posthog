@@ -17,8 +17,9 @@ pub(super) enum Tab {
     Mission,
     Goals,
     Facts,
-    /// Passive context references.
-    Linked,
+    /// What the topic reads for context. Saved layouts say `Linked`.
+    #[serde(alias = "Linked")]
+    Sources,
     Rules,
 }
 impl Tab {
@@ -32,7 +33,7 @@ impl Tab {
         Self::Mission,
         Self::Goals,
         Self::Facts,
-        Self::Linked,
+        Self::Sources,
         Self::Rules,
     ];
     pub(super) fn label(self) -> &'static str {
@@ -46,7 +47,7 @@ impl Tab {
             Self::Mission => "Mission",
             Self::Goals => "Goals",
             Self::Facts => "Facts",
-            Self::Linked => "Linked",
+            Self::Sources => "Sources",
             Self::Rules => "Rules",
         }
     }
@@ -54,8 +55,9 @@ impl Tab {
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum Detail {
     Goal(GoalId),
-    /// A linked context source, by its watch key.
-    Linked(String),
+    /// A context source, by its watch key. Saved layouts say `Linked`.
+    #[serde(alias = "Linked")]
+    Source(String),
     Thread(ThreadId),
     Task(TaskId),
     Fact(FactId),
@@ -445,7 +447,7 @@ impl Desktop {
         let draft = cx.new(|cx| TextareaState::new(w, cx).auto_grow(2, 30));
         let composer = cx.new(|cx| {
             let mut input = TextareaState::new(w, cx)
-                .auto_grow(2, 5)
+                .auto_grow(1, 8)
                 .placeholder("Ask, or tell it what to do");
             input.set_submit_on_enter(true, cx);
             input
@@ -1103,7 +1105,7 @@ impl Desktop {
             self.chat_files.clear();
         }
         if self.identity.is_some()
-            && (page == Page::Settings || matches!(page, Page::Topic(_, Tab::Linked, _)))
+            && (page == Page::Settings || matches!(page, Page::Topic(_, Tab::Sources, _)))
         {
             self.refresh_github(w, cx);
         }
@@ -1204,13 +1206,13 @@ impl Desktop {
                     ),
                 )
             }
-            (_, Some(Detail::Linked(key))) => {
+            (_, Some(Detail::Source(key))) => {
                 let w = t.context_sources.iter().find(|x| x.key == *key)?;
                 (
                     super::overview::source_glyph(&w.kind),
                     w.label.clone(),
                     format!(
-                        "About the linked {} \"{}\" ({})",
+                        "About the source {} \"{}\" ({})",
                         super::overview::source_kind(&w.kind),
                         w.label,
                         w.key
@@ -1272,7 +1274,7 @@ impl Desktop {
                 (_, Some(Detail::Routine(_))) => "Ask to change this routine",
                 (_, Some(Detail::Goal(_))) => "Change the target, or how it's measured",
                 (_, Some(Detail::Fact(_))) => "Correct this, or ask where it came from",
-                (_, Some(Detail::Linked(_))) => "Ask about it, or what to use it for",
+                (_, Some(Detail::Source(_))) => "Ask about it, or what to use it for",
                 (Tab::Tasks, None) => "Ask about tasks, or start a new one",
                 (Tab::Inbox, None) => "Ask about the inbox",
                 (Tab::Files, None) => "Ask about these files",
@@ -1280,7 +1282,7 @@ impl Desktop {
                 (Tab::Mission, None) => "Tell it how the mission should change",
                 (Tab::Goals, None) => "Ask for a new goal, or change one",
                 (Tab::Facts, None) => "Tell it something it should know",
-                (Tab::Linked, None) => "Link a dashboard, flag or channel",
+                (Tab::Sources, None) => "Link a dashboard, flag or channel",
                 (Tab::Rules, None) => "Ask it to always, or never, do something",
                 _ => "Ask, or tell it what to do",
             },
@@ -1951,7 +1953,7 @@ pub(super) fn topic_crumbs(
         ))
         .child(chevron());
     match current {
-        Some((icon, label)) => row
+        Some((_, label)) => row
             .child(link(
                 "crumb-section".into(),
                 tab.label().into(),
@@ -1959,7 +1961,7 @@ pub(super) fn topic_crumbs(
                 Page::Topic(topic, tab, None),
             ))
             .child(chevron())
-            .child(here(icon, label)),
+            .child(here(None, label)),
         None => row.child(here(None, tab.label().into())),
     }
 }

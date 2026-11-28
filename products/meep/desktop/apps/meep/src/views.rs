@@ -493,7 +493,7 @@ impl Desktop {
             .child(
                 ui::heading("new-view-heading", "New view")
                     .mt(px(16.))
-                    .text_size(px(20.))
+                    .text_size(px(18.))
                     .line_height(relative(1.35)),
             )
             .child(

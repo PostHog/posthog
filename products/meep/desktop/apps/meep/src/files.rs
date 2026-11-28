@@ -9,6 +9,14 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The folder that holds one folder per task.
 pub(super) const TASKS: &str = "tasks";
+
+fn folder_label(name: &str) -> String {
+    let mut chars = name.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
 /// A listing younger than this is reused when the tab opens again.
 const FRESH: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -422,7 +430,11 @@ impl Desktop {
                         },
                         false,
                     ))
-                    .child(ui::nav::title(name.clone()))
+                    .child(ui::nav::title(if depth == 0 {
+                        folder_label(name)
+                    } else {
+                        name.clone()
+                    }))
                     .children(status.filter(|c| *c != Column::Done).map(|c| {
                         div()
                             .flex_none()
@@ -656,10 +668,15 @@ impl Desktop {
     }
 
     fn file_body(&self, state: &TopicState, chosen: &str, cx: &Context<Self>) -> Div {
-        match self.file_entries(state).get(chosen) {
+        let view = match self.file_entries(state).get(chosen) {
             Some(Entry::Artifact(a)) => self.artifact_view(chosen, a, cx),
             _ => self.topic_file_view(state, chosen, cx),
-        }
+        };
+        let name = chosen.rsplit('/').next().unwrap_or(chosen).to_owned();
+        ui::column()
+            .gap(px(16.))
+            .child(super::details::item_title("File", name))
+            .child(view)
     }
 
     pub(super) fn files_split(

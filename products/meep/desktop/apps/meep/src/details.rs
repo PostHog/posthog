@@ -722,7 +722,7 @@ impl Desktop {
                 .find(|m| m.id == *t)
                 .map(|m| self.task(state, m, false, w, cx)),
             // Routines, goals and linked sources open in the page itself.
-            Detail::Routine(_) | Detail::Scout(_) | Detail::Goal(_) | Detail::Linked(_) => {
+            Detail::Routine(_) | Detail::Scout(_) | Detail::Goal(_) | Detail::Source(_) => {
                 return div();
             }
             Detail::Fact(f) => state.topic.facts.iter().find(|v| v.id == *f).map(|f| {
@@ -958,7 +958,7 @@ impl Desktop {
             .child(
                 scroll("details-scroll")
                     .px(px(PAGE_X))
-                    .pt(px(PAGE_TOP))
+                    .pt(px(PAGE_TOP - 8.))
                     // A footer note casts a fade over the scroll's end; the extra room lets
                     // the last line scroll clear of it.
                     .pb(px(if pane.footer.is_some() { 36. } else { 20. }))
@@ -1219,7 +1219,7 @@ impl Desktop {
             )
             .child(
                 div()
-                    .text_size(px(20.))
+                    .text_size(px(18.))
                     .line_height(relative(1.3))
                     .font_weight(FontWeight::SEMIBOLD)
                     .child(t.subject.clone()),
@@ -1277,7 +1277,7 @@ impl Desktop {
                     .into_any_element()
             }));
         }
-        let headline = headline.children(full_button.map(|b| div().child(b)));
+        let headline = headline.children(full_button.map(|b| div().flex().ml(px(-6.)).child(b)));
         body = body.child(headline);
 
         // Proposal: what the agent would do, and the buttons that do it.
@@ -1658,7 +1658,7 @@ impl Desktop {
             .any(|n| matches!(n, NeedsYouItem::Problem { topics, .. } if topics.contains(&id)));
         // Sorting state reads after the conversation it is about.
         let mut status = ui::column().gap(px(12.));
-        let repository_review = super::pages::thread_tab(t) == Tab::Linked;
+        let repository_review = super::pages::thread_tab(t) == Tab::Sources;
         let has_status = t.report_sources.is_some()
             || matches!(t.state, ThreadState::Sorting)
             || matches!(&t.state, ThreadState::NeedsYou { .. } if t.summary.is_empty() && !repository_review);
@@ -2693,6 +2693,7 @@ impl Desktop {
         });
         let body = ui::column()
             .gap(px(SECTION_GAP))
+            .child(item_title("Task", meep_topic::title_line(&t.title)))
             .children(origin)
             .child(body);
         ui::column()
@@ -4389,7 +4390,7 @@ fn receipt(id: TopicId, state: &TopicState, a: &meep_topic::Activity) -> Option<
             (Glyph::Target, Some(Page::Topic(id, Tab::Goals, None)))
         }
         Ref::Topic if lower.contains("source") || lower.contains("link") => {
-            (Glyph::Link, Some(Page::Topic(id, Tab::Linked, None)))
+            (Glyph::Link, Some(Page::Topic(id, Tab::Sources, None)))
         }
         Ref::Topic => (Glyph::Check, None),
     };
@@ -4638,13 +4639,35 @@ pub(super) fn readable_answer(text: &str) -> String {
 }
 
 /// An item page's head, the same on every one: what kind of thing it is, then its name.
+pub(super) fn item_title_with(
+    kind: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    status: Div,
+) -> Div {
+    ui::column()
+        .gap(px(4.))
+        .child(
+            ui::row()
+                .gap(px(10.))
+                .child(ui::caption(kind.into()))
+                .child(status),
+        )
+        .child(
+            div()
+                .text_size(px(18.))
+                .line_height(relative(1.3))
+                .font_weight(FontWeight::SEMIBOLD)
+                .child(title.into()),
+        )
+}
+
 pub(super) fn item_title(kind: impl Into<SharedString>, title: impl Into<SharedString>) -> Div {
     ui::column()
         .gap(px(4.))
         .child(ui::caption(kind.into()))
         .child(
             div()
-                .text_size(px(22.))
+                .text_size(px(18.))
                 .line_height(relative(1.3))
                 .font_weight(FontWeight::SEMIBOLD)
                 .child(title.into()),

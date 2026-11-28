@@ -34,7 +34,7 @@ fn source_tile(watch: &Watch) -> Div {
 }
 
 impl Desktop {
-    pub(super) fn linked_section(&self, topic: &Topic, cx: &Context<Self>) -> Div {
+    pub(super) fn sources_page(&self, topic: &Topic, cx: &Context<Self>) -> Div {
         let id = topic.id;
         let sources: Vec<(usize, &Watch)> = topic
             .context_sources
@@ -49,7 +49,7 @@ impl Desktop {
         let rows: Vec<AnyElement> = if sources.is_empty() {
             vec![
                 set::empty(
-                    "No linked sources",
+                    "No sources yet",
                     "Link a dashboard, insight, flag or channel so the agent can read it.",
                 )
                 .into_any_element(),
@@ -76,7 +76,7 @@ impl Desktop {
                         .active(|s| s.bg(ui::ink(0x0a)))
                         .on_click(cx.listener(move |s, _, w, cx| {
                             s.go(
-                                Page::Topic(id, Tab::Linked, Some(Detail::Linked(key.clone()))),
+                                Page::Topic(id, Tab::Sources, Some(Detail::Source(key.clone()))),
                                 w,
                                 cx,
                             )
@@ -114,11 +114,11 @@ impl Desktop {
         };
         ui::column()
             .child(header(
-                "Linked",
+                "Sources",
                 "What this topic reads for context. Topic chat reads these and never changes them.",
                 None,
             ))
-            .child(section("Sources", "", Some(add), true))
+            .child(section("Data", "", Some(add), true))
             .child(group(rows))
             .when(self.identity.is_some(), |col| {
                 col.child(self.github_section(topic, cx))

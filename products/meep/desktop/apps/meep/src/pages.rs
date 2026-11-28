@@ -194,7 +194,7 @@ pub(super) fn failure_reason(raw: &str) -> String {
 
 /// The "you're done here" state: a hedgehog bobbing on a pool float, and two
 /// lines on what would land here. Needs you and a skipped-only inbox both use it.
-fn all_clear(lines: [&'static str; 2], reduced: bool) -> Div {
+fn all_clear(line: &'static str, reduced: bool) -> Div {
     const W: f32 = 240.;
     const HOG: f32 = 112.;
     const WATER: f32 = 104.;
@@ -279,8 +279,7 @@ fn all_clear(lines: [&'static str; 2], reduced: bool) -> Div {
                 .text_size(px(12.))
                 .line_height(px(17.))
                 .text_color(rgb(ui::theme::color(ui::SECONDARY)))
-                .child(div().child(lines[0]))
-                .child(div().child(lines[1])),
+                .child(div().child(line)),
         )
 }
 /// What kind of thing waits on you, as an icon on a tinted tile: a choice, a
@@ -323,7 +322,7 @@ pub(super) fn thread_tab(thread: &Thread) -> Tab {
         Tab::Inbox
     } else if matches!(&thread.state, ThreadState::NeedsYou { suggestions, .. } if suggestions.iter().any(|s| matches!(s, Suggestion::LinkRepository { .. })))
     {
-        Tab::Linked
+        Tab::Sources
     } else if thread.key.starts_with("file-review/") {
         Tab::Files
     } else if thread.is_topic_chat() && !thread.key.starts_with("fact-review/") {
@@ -993,14 +992,8 @@ impl Desktop {
         if n == 0 && !showed_approval {
             items.push((
                 None,
-                all_clear(
-                    [
-                        "Your topics are working on their own.",
-                        "When one needs a decision, an approval or a fix, it lands here.",
-                    ],
-                    cx.reduce_motion(),
-                )
-                .into_any_element(),
+                all_clear("Your topics are working on their own.", cx.reduce_motion())
+                    .into_any_element(),
             ))
         }
         let measure = || ui::column().w_full().max_w(px(MEASURE)).mx_auto();
@@ -1039,12 +1032,16 @@ impl Desktop {
             .size_full()
             .child(
                 measure().flex_none().pb(px(12.)).child(
-                    ui::row().child(
-                        ui::column()
-                            .gap(px(2.))
-                            .child(ui::heading("needs-title", "Needs you"))
-                            .when(n > 0, |c| c.child(ui::caption(summary))),
-                    ),
+                    meep_shell::settings::header(
+                        "Needs you",
+                        if n > 0 {
+                            summary
+                        } else {
+                            "Decisions, approvals and fixes from all your topics.".to_owned()
+                        },
+                        None,
+                    )
+                    .pb_0(),
                 ),
             )
             .child(
@@ -1220,7 +1217,7 @@ impl Desktop {
                         .track_scroll(&self.content_scroll)
                         .h_full()
                         .px(px(super::details::PAGE_X))
-                        .pt(px(super::details::PAGE_TOP))
+                        .pt(px(super::details::PAGE_TOP - if routine.is_some() { 8. } else { 0. }))
                         .pb(px(12.))
                         .child({
                             let content = match (tab, detail) {
@@ -1228,7 +1225,7 @@ impl Desktop {
                                     self.scout_page(state, *key, tab == Tab::Inbox)
                                 }
                                 (_, Some(Detail::Goal(g))) => self.goal_page(state, *g, cx),
-                                (_, Some(Detail::Linked(k))) => self.linked_page(state, k, cx),
+                                (_, Some(Detail::Source(k))) => self.source_page(state, k, cx),
                                 _ => match tab {
                                     Tab::Chat | Tab::Inbox => self.inbox(state, w, cx),
                                     Tab::Needs => self.topic_needs(state, cx),
@@ -1238,12 +1235,13 @@ impl Desktop {
                                     Tab::Mission
                                     | Tab::Goals
                                     | Tab::Facts
-                                    | Tab::Linked
+                                    | Tab::Sources
                                     | Tab::Rules => self.context_page(state, tab, w, cx),
                                 },
                             };
-                            let content = if detail.is_none() && matches!(tab, Tab::Tasks | Tab::Inbox | Tab::Files) {
+                            let content = if detail.is_none() && matches!(tab, Tab::Needs | Tab::Tasks | Tab::Inbox | Tab::Files) {
                                 let (title, about) = match tab {
+                                    Tab::Needs => ("Needs you", "Decisions, approvals and fixes for this topic."),
                                     Tab::Tasks => ("Tasks", "Work the agent runs for this topic. Open a task to see its run."),
                                     Tab::Files => ("Files", "Files the agent made and files you added to this topic."),
                                     _ => ("Inbox", "Reports and requests for this topic. Open one to act on it."),
@@ -1338,7 +1336,7 @@ impl Desktop {
                         x.text.clone(),
                     )
                 }),
-                Some(Detail::Linked(key)) => topic
+                Some(Detail::Source(key)) => topic
                     .context_sources
                     .iter()
                     .find(|x| x.key == *key)
@@ -1465,13 +1463,7 @@ impl Desktop {
         let id = state.topic.id;
         let groups = attention_groups(&self.needs, state);
         if groups.is_empty() {
-            return all_clear(
-                [
-                    "This topic is working on its own.",
-                    "When it needs a decision, an approval or a fix, it lands here.",
-                ],
-                cx.reduce_motion(),
-            );
+            return all_clear("This topic is working on its own.", cx.reduce_motion());
         }
         let mut page = ui::column().w_full().gap(px(20.)).pt(px(4.)).pb(px(40.));
         let mut start = 0;
@@ -1607,6 +1599,9 @@ impl Desktop {
         let open = all.len() - closed;
         let closed_fold = format!("inbox-closed-{id}");
         let mut rows: [Vec<AnyElement>; 2] = [vec![], vec![]];
+        let any_priority = all
+            .iter()
+            .any(|t| t.report_sources.as_ref().and_then(|r| r.priority).is_some());
         for (index, t) in all.into_iter().enumerate() {
             if index == open {
                 if skipped_height > 0. {
@@ -1745,11 +1740,13 @@ impl Desktop {
                             }),
                     )
                     // Priority as a small tinted badge, so P0/P1 read at a glance.
-                    .child(
-                        div()
-                            .id(format!("priority-{}", t.id))
-                            .child(priority_badge(priority, is_open)),
-                    )
+                    .when(any_priority, |row| {
+                        row.child(
+                            div()
+                                .id(format!("priority-{}", t.id))
+                                .child(priority_badge(priority, is_open)),
+                        )
+                    })
                     // The headline, then where it stands and its lead on a quieter line.
                     .child(
                         ui::column()
@@ -1894,7 +1891,7 @@ impl Desktop {
             Tab::Mission => page.child(self.mission_page(state, cx)),
             Tab::Goals => page.child(self.goals_page(state, cx)),
             Tab::Facts => page.child(self.facts_page(state, cx)),
-            Tab::Linked => page.child(self.linked_section(&state.topic, cx)),
+            Tab::Sources => page.child(self.sources_page(&state.topic, cx)),
             _ => page.child(self.rules_page(state, cx)),
         };
         div().w_full().flex().justify_center().child(page)
@@ -2032,7 +2029,7 @@ impl Desktop {
         use meep_shell::settings::{self as set, Tone};
         let head = set::header(
             "Routines",
-            "Scouts watch PostHog for changes. Routines run on a schedule or an event.",
+            "Scouts watch for changes. Routines run on a schedule or an event.",
             Some(
                 control("bind", "New routine", false, cx, |s, w, cx| {
                     s.compose_routine(w, cx)
@@ -2158,15 +2155,19 @@ impl Desktop {
                     .flex_1()
                     .min_w_0()
                     .gap(px(6.))
-                    .child(super::details::item_title("Scout", scout.name.clone()))
-                    .child(div().pt(px(4.)).child(meep_shell::settings::status(
-                        if scout.enabled { "On" } else { "Off" },
-                        if scout.enabled {
-                            meep_shell::settings::Tone::Positive
-                        } else {
-                            meep_shell::settings::Tone::Neutral
-                        },
-                    )))
+                    .child(super::details::item_title_with(
+                        "Scout",
+                        scout.name.clone(),
+                        meep_shell::settings::status(
+                            if scout.enabled { "On" } else { "Off" },
+                            if scout.enabled {
+                                meep_shell::settings::Tone::Positive
+                            } else {
+                                meep_shell::settings::Tone::Neutral
+                            },
+                        )
+                        .text_size(px(12.)),
+                    ))
             })
             .children(
                 self.identity
@@ -2184,12 +2185,9 @@ impl Desktop {
             return page.child(ui::caption("No findings yet."));
         }
         if !as_report {
-            page = page.child(meep_shell::settings::section(
-                "Recent findings",
-                "",
-                None,
-                false,
-            ));
+            page = page.child(
+                meep_shell::settings::section("Recent findings", "", None, false).mb(px(-10.)),
+            );
         }
         for report in &scout.reports {
             page = page.child(

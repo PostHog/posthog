@@ -589,7 +589,7 @@ impl Desktop {
     }
     fn task_list(&self, state: &TopicState, w: &Window, cx: &Context<Self>) -> Div {
         let id = state.topic.id;
-        let mut list = ui::column().gap_0().mx(px(-24.));
+        let mut list = ui::column().gap_0().mx(px(-29.));
         // Keep off-screen rows out of the element tree, but preserve their
         // height so the existing scroll handle and keyboard reveal still work.
         // Accessibility and drag operations need the complete set of targets.

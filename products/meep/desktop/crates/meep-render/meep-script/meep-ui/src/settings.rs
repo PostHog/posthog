@@ -63,8 +63,8 @@ pub fn header(
                 .gap(px(6.))
                 .child(
                     text(title)
-                        .text_size(px(22.))
-                        .line_height(px(28.))
+                        .text_size(px(18.))
+                        .line_height(px(24.))
                         .font_weight(FontWeight::SEMIBOLD)
                         .text_color(ink()),
                 )
@@ -79,11 +79,11 @@ pub fn header(
                 }),
         )
         .when_some(action, |el, action| {
-            // Centred on the title's 28pt line.
+            // Centred on the title's 24pt line.
             el.child(
                 div()
                     .flex_none()
-                    .h(px(28.))
+                    .h(px(24.))
                     .flex()
                     .items_center()
                     .child(action),

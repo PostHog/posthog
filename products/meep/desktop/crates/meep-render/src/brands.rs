@@ -105,7 +105,7 @@ pub fn logo(service: &str, size: f32) -> Div {
             .text_color(rgb(theme::color(ui::SECONDARY)))
             .child(
                 gpui_kit::component::Icon::new(gpui_kit::assets::IconName::Plug)
-                    .size(px(size * 0.55))
+                    .size(px(size * 0.7))
                     .text_color(rgb(theme::color(ui::SECONDARY))),
             ),
     }

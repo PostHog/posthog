@@ -702,11 +702,11 @@ impl Desktop {
                             reviews
                         }
                         Tab::Goals => s.topic.goals.iter().map(|g| Detail::Goal(g.id)).collect(),
-                        Tab::Linked => s
+                        Tab::Sources => s
                             .topic
                             .context_sources
                             .iter()
-                            .map(|w| Detail::Linked(w.key.clone()))
+                            .map(|w| Detail::Source(w.key.clone()))
                             .collect(),
                         Tab::Chat | Tab::Needs | Tab::Mission | Tab::Rules => vec![],
                     };
@@ -1561,7 +1561,7 @@ impl Desktop {
                     .child(
                         div()
                             .mt(px(16.))
-                            .text_size(px(20.))
+                            .text_size(px(18.))
                             .font_weight(FontWeight::SEMIBOLD)
                             .child("New topic"),
                     )
