@@ -720,6 +720,93 @@ def build_target_condition(
     return "event = {target}", {"target": target_event}
 
 
+@dataclass(frozen=True, kw_only=True)
+class _UserWindowScan:
+    """
+    The member scan that selects the labeler's candidates, and the values it binds.
+
+    A candidate is a person with a member event in the lookback, before the cutoff (the
+    anchor minus the horizon). The labeled CTE then decides membership at each
+    candidate's T0, and the eligible count counts the candidates.
+    """
+
+    now_expr: str
+    target_cond: str
+    compiled_filters: _CompiledPopulationFilters
+    compiled_kind: _CompiledPopulationKind
+    member_clause: str
+    member_scan: str
+    values: dict[str, Any]
+
+    @property
+    def members_sql(self) -> str:
+        return f"SELECT person_id FROM events WHERE {self.member_scan}"
+
+    @property
+    def candidate_ids_sql(self) -> str:
+        """The candidates' ids. A member event before the cutoff is the same rule as ``first_ts < cutoff_ts``."""
+        return f"{self.members_sql} AND timestamp < {self.now_expr} - toIntervalDay({{horizon}})"
+
+    @property
+    def candidates_sql(self) -> str:
+        """One row per candidate as ``m(person_id, first_ts, cutoff_ts)``, for a FROM clause."""
+        return f"""(
+                SELECT
+                    person_id,
+                    toInt(toUnixTimestamp(min(timestamp))) AS first_ts,
+                    toInt(toUnixTimestamp({self.now_expr} - toIntervalDay({{horizon}}))) AS cutoff_ts
+                FROM events
+                WHERE {self.member_scan}
+                GROUP BY person_id
+                HAVING first_ts < cutoff_ts
+            ) AS m"""
+
+
+def _user_window_scan(
+    *,
+    target_event: str,
+    target_definition: dict[str, Any] | None,
+    team: "Team | None",
+    horizon_days: int,
+    lookback_days: int,
+    training_population: dict[str, Any] | None,
+    anchor_ts: int | None,
+) -> _UserWindowScan:
+    training_properties = (training_population or {}).get("properties", []) if training_population else []
+    compiled_filters = _compile_population_filters(training_properties)
+    target_cond, target_values = build_target_condition(
+        target_event=target_event, target_definition=target_definition, team=team
+    )
+    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else _UTC_DAY_START_OF_NOW
+    compiled_kind = _build_population_kind_conditions(
+        training_population, now_expr=now_expr, anchor_mode=True, target_cond=target_cond
+    )
+    member_clause = _member_clause(compiled_filters, compiled_kind)
+    superset_clause = f" AND ({' AND '.join(compiled_kind.where_parts)})" if compiled_kind.where_parts else ""
+    member_scan = (
+        f"timestamp >= {now_expr} - toIntervalDay({{lookback}})"
+        f" AND timestamp < {now_expr}{_own_events_excluded_clause()}{member_clause}{superset_clause}"
+    )
+    values: dict[str, Any] = {
+        "horizon": horizon_days,
+        "lookback": lookback_days,
+        **target_values,
+        **compiled_filters.values,
+        **compiled_kind.values,
+    }
+    if anchor_ts is not None:
+        values["anchor_ts"] = utc_day_start(anchor_ts)
+    return _UserWindowScan(
+        now_expr=now_expr,
+        target_cond=target_cond,
+        compiled_filters=compiled_filters,
+        compiled_kind=compiled_kind,
+        member_clause=member_clause,
+        member_scan=member_scan,
+        values=values,
+    )
+
+
 def _build_labeled_users_cte(
     *,
     target_event: str,
@@ -760,23 +847,19 @@ def _build_labeled_users_cte(
     features and the anchor count, bind the same anchor_ts, because each query reads
     its own now() and a person at a window edge can fall in one and not the other.
     """
-    training_properties = (training_population or {}).get("properties", []) if training_population else []
-    compiled_filters = _compile_population_filters(training_properties)
-    target_cond, target_values = build_target_condition(
-        target_event=target_event, target_definition=target_definition, team=team
+    scan = _user_window_scan(
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+        training_population=training_population,
+        anchor_ts=anchor_ts,
     )
-    now_expr = "fromUnixTimestamp({anchor_ts})" if anchor_ts is not None else _UTC_DAY_START_OF_NOW
-    compiled_kind = _build_population_kind_conditions(
-        training_population, now_expr=now_expr, anchor_mode=True, target_cond=target_cond
-    )
-    member_clause = _member_clause(compiled_filters, compiled_kind)
-    superset_clause = f" AND ({' AND '.join(compiled_kind.where_parts)})" if compiled_kind.where_parts else ""
-    member_scan = (
-        f"timestamp >= {now_expr} - toIntervalDay({{lookback}})"
-        f" AND timestamp < {now_expr}{_own_events_excluded_clause()}{member_clause}{superset_clause}"
-    )
+    now_expr, target_cond = scan.now_expr, scan.target_cond
+    compiled_filters, compiled_kind, member_clause = scan.compiled_filters, scan.compiled_kind, scan.member_clause
     persons_sql = _person_rows_sql(
-        f"SELECT person_id FROM events WHERE {member_scan}",
+        scan.members_sql,
         compiled_filters.person_parts,
         select="id, toInt(toUnixTimestamp(argMax(created_at, version))) AS created_ts",
     )
@@ -826,16 +909,7 @@ def _build_labeled_users_cte(
                 intDiv(m.first_ts, 86400) + 1 AS first_day,
                 intDiv(m.cutoff_ts, 86400) AS cutoff_day,
                 p.created_ts AS person_created_ts
-            FROM (
-                SELECT
-                    person_id,
-                    toInt(toUnixTimestamp(min(timestamp))) AS first_ts,
-                    toInt(toUnixTimestamp({now_expr} - toIntervalDay({{horizon}}))) AS cutoff_ts
-                FROM events
-                WHERE {member_scan}
-                GROUP BY person_id
-                HAVING first_ts < cutoff_ts
-            ) AS m
+            FROM {scan.candidates_sql}
             INNER JOIN ({persons_sql}) AS p ON m.person_id = p.id{limit_clause}
         ),
         user_t0 AS (
@@ -863,15 +937,7 @@ def _build_labeled_users_cte(
             GROUP BY u.person_id, u.t0_ts{anchor_having}
         )
     """
-    values: dict[str, Any] = {
-        "horizon": horizon_days,
-        "lookback": lookback_days,
-        **target_values,
-        **compiled_filters.values,
-        **compiled_kind.values,
-    }
-    if anchor_ts is not None:
-        values["anchor_ts"] = utc_day_start(anchor_ts)
+    values = dict(scan.values)
     if negative_sample_rate < 1.0:
         values["negative_sample_threshold"] = negative_sample_threshold(negative_sample_rate)
         cte += f"""    ,
@@ -940,41 +1006,32 @@ def build_eligible_count_sql(
     team: "Team | None" = None,
 ) -> tuple[str, dict[str, Any]]:
     """
-    Build a HogQL query returning the count of users eligible to be labeled by the
-    random-T0 labeler — i.e. users in the training_population with at least one member
-    event (the population event, or any event when the population names none) before
-    the start of the current UTC day minus horizon_days, the labeler's cutoff. Used as the UI headline number so the wizard reports
-    the full population size, not the sampled subset.
+    Build a HogQL query that counts the random-T0 labeler's candidates: the persons in
+    its unsampled ``user_window``. A candidate has a member event (the population event,
+    or any event when the population names none) in the lookback, before the start of the
+    current UTC day minus horizon_days, and passes the person-property filters.
 
-    Returns two columns: ``eligible`` (the v1 headline — restricted to identified
-    users when IDENTIFIED_USERS_ONLY is on) and ``eligible_all`` (the same count
-    without the identified restriction). The caller divides the two to detect a
-    mostly-anonymous population and warn that v1 excludes the anonymous remainder.
+    The query reuses the labeler's member scan, and reads the member events once. It does not apply the per-user-at-T0 ``HAVING``, so it is an upper bound on
+    the training rows. The validation multiplies it by the fraction of a sampled window
+    that the labeler keeps.
+
+    Returns two columns: ``eligible`` (candidates restricted to identified users when
+    IDENTIFIED_USERS_ONLY is on, which is the labeler's own window) and ``eligible_all``
+    (the same count without the identified restriction). The caller divides the two to
+    detect a mostly-anonymous population and warn that v1 excludes the anonymous remainder.
     """
-    training_properties = (training_population or {}).get("properties", []) if training_population else []
-    compiled_filters = _compile_population_filters(training_properties)
-    # Row mode: the target-relative kinds are evaluated as of the day start here, which is an
-    # approximation of the trainer's per-user-at-T0 semantics — acceptable for an
-    # advisory headline count.
-    target_cond, target_values = _target_condition_for(
-        training_population, target_event=target_event, target_definition=target_definition, team=team
-    )
-    compiled_kind = _build_population_kind_conditions(
-        training_population, now_expr=_UTC_DAY_START_OF_NOW, target_cond=target_cond
-    )
-    row_parts = compiled_filters.event_parts + compiled_kind.where_parts
-    row_clause = f" AND ({' AND '.join(row_parts)})" if row_parts else ""
-    member_clause = _member_clause(compiled_filters, compiled_kind)
-
-    # A member event before the day start minus the horizon is the trainer's `first_ts < cutoff_ts`.
-    members_sql = (
-        "SELECT person_id FROM events"
-        f" WHERE timestamp >= {_UTC_DAY_START_OF_NOW} - toIntervalDay({{lookback}})"
-        f" AND timestamp < {_UTC_DAY_START_OF_NOW} - toIntervalDay({{horizon}}){_own_events_excluded_clause()}{member_clause}{row_clause}"
+    scan = _user_window_scan(
+        target_event=target_event,
+        target_definition=target_definition,
+        team=team,
+        horizon_days=horizon_days,
+        lookback_days=lookback_days,
+        training_population=training_population,
+        anchor_ts=None,
     )
     persons_sql = _person_rows_sql(
-        members_sql,
-        compiled_filters.person_parts + compiled_kind.person_parts,
+        scan.candidate_ids_sql,
+        scan.compiled_filters.person_parts,
         select="id, argMax(is_identified, version) AS is_identified",
         identified_only=False,
     )
@@ -986,14 +1043,7 @@ def build_eligible_count_sql(
             count() AS eligible_all
         FROM ({persons_sql})
     """
-    values: dict[str, Any] = {
-        "horizon": horizon_days,
-        "lookback": lookback_days,
-        **target_values,
-        **compiled_filters.values,
-        **compiled_kind.values,
-    }
-    return sql, values
+    return sql, scan.values
 
 
 def _last_scored_sql(cutoff_expr: str) -> str:

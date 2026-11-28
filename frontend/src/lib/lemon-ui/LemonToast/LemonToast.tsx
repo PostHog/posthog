@@ -4,19 +4,30 @@ import { toast, type ToastOptions, type UpdateOptions } from 'react-toastify'
 
 import { IconCheckCircle, IconCopy, IconInfo, IconWarning, IconX } from '@posthog/icons'
 
-import { getIncidentStatus, STATUS_PAGE_BASE } from 'lib/lemon-ui/LemonToast/incidentStatus'
 import { isChristmas } from 'lib/utils/holidays'
-import { renderDetailWithLinks } from 'lib/utils/renderDetailWithLinks'
 import { hashCodeForString } from 'lib/utils/strings'
 import { writeToClipboard } from 'lib/utils/writeToClipboard'
 
 import { IconErrorOutline, IconGift } from '../icons'
 import { LemonButton } from '../LemonButton'
-import { Link } from '../Link'
 import { Spinner } from '../Spinner'
 import { getHelp } from './getHelp'
+import { quillToastBackend, quillToastsMounted } from './quillToast'
+import {
+    type ToastBackend,
+    type ToastError,
+    type ToastKind,
+    type ToastPromiseMessages,
+    type ToastSpec,
+    promiseSuccessMessage,
+} from './toastBackend'
+import { incidentNote, withClickableUrls } from './toastMessage'
 
-export function ToastCloseButton({ closeToast }: { closeToast?: () => void }): JSX.Element {
+export function ToastCloseButton({
+    closeToast,
+}: {
+    closeToast?: (event: React.MouseEvent<HTMLElement>) => void
+}): JSX.Element {
     return (
         <LemonButton
             type="tertiary"
@@ -35,19 +46,18 @@ export interface ToastButton {
     className?: string
 }
 
-interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
+export interface ToastOptionsWithButton<T = string> extends ToastOptions<T> {
     button?: ToastButton
+    /** A second action, shown after `button` on a row under the message. */
+    secondaryButton?: ToastButton
     hideButton?: boolean
+    /** Runs when the user closes the toast, not when it times out. */
+    onDismiss?: () => void
 }
 
 interface ErrorToastOptions<T = string> extends ToastOptionsWithButton<T> {
     /** Sent to analytics in place of `message`, for a message that can repeat text the user typed. */
     capturedMessage?: string
-}
-
-interface SuccessToastOptions<T = string> extends ToastOptionsWithButton<T> {
-    /** A second action, shown after `button` on a row under the message. */
-    secondaryButton?: ToastButton
 }
 
 export const GET_HELP_BUTTON: ToastButton = {
@@ -85,9 +95,7 @@ export function ToastActionButton({
         <LemonButton
             onClick={() => {
                 void button.action()
-                // Not lemonToast.dismiss: that marks the id cancelled so the next toast reusing it
-                // is swallowed, and ids are a hash of the message, so the same error would go quiet.
-                toast.dismiss(toastId)
+                lemonToast.dismiss(toastId)
             }}
             type="secondary"
             size="small"
@@ -168,11 +176,7 @@ export function ToastContent({ type, message, button, secondaryButton, id }: Toa
     )
 }
 
-function ensureToastId<T>(
-    toastOptions: ToastOptions<T>,
-    type: string,
-    message?: string | JSX.Element
-): ToastOptions<T> {
+function ensureToastId<O extends ToastOptions<any>>(toastOptions: O, type: string, message?: string | JSX.Element): O {
     if (toastOptions.toastId) {
         return toastOptions
     }
@@ -185,206 +189,78 @@ function ensureToastId<T>(
     return { ...toastOptions, toastId }
 }
 
-/**
- * Backend error details often embed a raw docs URL ("... see our docs: https://posthog.com/docs/..."),
- * which as plain toast text is unclickable. `renderDetailWithLinks` links PostHog-host URLs in place,
- * leaving the prose (and any untrusted URL) untouched, so the copy button still carries the full text.
- */
-export function withClickableUrls(message: string | JSX.Element): string | JSX.Element {
-    if (typeof message !== 'string' || !message.includes('http')) {
-        return message
-    }
-    return <>{renderDetailWithLinks(message)}</>
-}
-
 function withIncidentNote(message: string | JSX.Element): string | JSX.Element {
-    const status = getIncidentStatus()
-    if (status === 'operational') {
+    const note = incidentNote('block text-xs mt-1 opacity-75')
+    if (!note) {
         return message
     }
 
     return (
         <>
             <span className="block">{message}</span>
-            <Link className="block text-xs mt-1 opacity-75" to={STATUS_PAGE_BASE} target="_blank">
-                There is an ongoing incident that may be related.
-            </Link>
+            {note}
         </>
     )
 }
 
-interface ToastError {
-    message: string
+function toastifyOptions<T>({ onDismiss, ...options }: ToastOptionsWithButton<T>): ToastOptions<T> {
+    if (!onDismiss) {
+        return options
+    }
+    return {
+        ...options,
+        closeButton: ({ closeToast }) => (
+            <ToastCloseButton
+                closeToast={(event) => {
+                    closeToast(event)
+                    onDismiss()
+                }}
+            />
+        ),
+    }
 }
 
-// IDs dismissed before the deferred microtask has fired. Prevents a toast from
-// appearing if dismiss() is called synchronously after creation in the same tick.
+const toastifyIcons: Record<ToastKind, () => JSX.Element> = {
+    info: () => <IconInfo />,
+    loading: () => <Spinner />,
+    success: successIcon,
+    warning: () => <IconWarning />,
+    error: () => <IconErrorOutline />,
+}
+
+function toastifyContent({ kind, id, message, button, secondaryButton }: Omit<ToastSpec, 'options'>): JSX.Element {
+    return (
+        <ToastContent
+            type={kind === 'loading' ? 'info' : kind}
+            message={kind === 'error' ? withIncidentNote(withClickableUrls(message)) : message}
+            button={button}
+            secondaryButton={secondaryButton}
+            id={id}
+        />
+    )
+}
+
+// Each toast waits a microtask so React can flush the re-render with the updated theme on ToastContainer.
+// A dismiss that lands in that gap cancels it.
+const pendingIds = new Set<number | string>()
 const cancelledIds = new Set<number | string>()
 
-export const lemonToast = {
-    info(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        const options = ensureToastId(toastOptions, 'info', message)
-        const id = options.toastId!
-        // Defer so React can flush the re-render with the updated theme on ToastContainer
+const toastifyBackend: ToastBackend = {
+    show(spec) {
+        pendingIds.add(spec.id)
         queueMicrotask(() => {
-            if (cancelledIds.delete(id)) {
-                return
+            pendingIds.delete(spec.id)
+            if (!cancelledIds.delete(spec.id)) {
+                toast[spec.kind](toastifyContent(spec), {
+                    icon: toastifyIcons[spec.kind](),
+                    ...toastifyOptions(spec.options),
+                })
             }
-            toast.info(<ToastContent type="info" message={message} button={button} id={id} />, {
-                icon: <IconInfo />,
-                ...options,
-            })
         })
-        return id
     },
-    loading(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        const options = ensureToastId(toastOptions, 'loading', message)
-        const id = options.toastId!
-        queueMicrotask(() => {
-            if (cancelledIds.delete(id)) {
-                return
-            }
-            toast.loading(<ToastContent type="info" message={message} button={button} id={id} />, {
-                icon: <Spinner />,
-                ...options,
-            })
-        })
-        return id
-    },
-    success(message: string | JSX.Element, { button, secondaryButton, ...toastOptions }: SuccessToastOptions = {}) {
-        const options = ensureToastId(toastOptions, 'success', message)
-        const id = options.toastId!
-        queueMicrotask(() => {
-            if (cancelledIds.delete(id)) {
-                return
-            }
-            toast.success(
-                <ToastContent
-                    type="success"
-                    message={message}
-                    button={button}
-                    secondaryButton={secondaryButton}
-                    id={id}
-                />,
-                {
-                    icon: successIcon(),
-                    ...options,
-                }
-            )
-        })
-        return id
-    },
-    warning(message: string | JSX.Element, { button, ...toastOptions }: ToastOptionsWithButton = {}) {
-        // The toolbar bundle initializes a named instance, so the default instance imported here stays
-        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
-        if (posthog.__loaded) {
-            posthog.capture('toast warning', {
-                message: String(message),
-                button: button?.label,
-                toastId: toastOptions.toastId,
-            })
-        }
-        const options = ensureToastId(toastOptions, 'warning', message)
-        const id = options.toastId!
-        queueMicrotask(() => {
-            if (cancelledIds.delete(id)) {
-                return
-            }
-            toast.warning(<ToastContent type="warning" message={message} button={button} id={id} />, {
-                icon: <IconWarning />,
-                ...options,
-            })
-        })
-        return id
-    },
-    error(
-        message: string | JSX.Element,
-        { button, hideButton, capturedMessage, ...toastOptions }: ErrorToastOptions = {}
-    ) {
-        // The toolbar bundle initializes a named instance, so the default instance imported here stays
-        // uninitialized there and posthog-js discards the event. `capture` is defined either way.
-        if (posthog.__loaded) {
-            posthog.capture('toast error', {
-                message: capturedMessage ?? String(message),
-                button: button?.label,
-                toastId: toastOptions.toastId,
-            })
-        }
-
-        const options = ensureToastId(toastOptions, 'error', message)
-        const id = options.toastId!
-        queueMicrotask(() => {
-            if (cancelledIds.delete(id)) {
-                return
-            }
-            toast.error(
-                <ToastContent
-                    type="error"
-                    message={withIncidentNote(withClickableUrls(message))}
-                    // Show button if explicitly provided, or show GET_HELP_BUTTON unless hideButton is true
-                    button={button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON}
-                    id={id}
-                />,
-                {
-                    icon: <IconErrorOutline />,
-                    ...options,
-                }
-            )
-        })
-        return id
-    },
-    promise(
-        promise: Promise<any>,
-        messages: {
-            pending: string | JSX.Element
-            /** A function is called when the promise settles, so it can read state that changed while it ran. */
-            success: string | JSX.Element | ((data?: string) => string | JSX.Element)
-            error: string | JSX.Element
-        },
-        { button, ...toastOptions }: ToastOptionsWithButton = {}
-    ): Promise<any> {
-        const options = ensureToastId(toastOptions, 'promise')
-        const id = options.toastId
-        // see https://fkhadra.github.io/react-toastify/promise
-        return toast.promise<string | undefined, ToastError>(
-            promise,
-            {
-                pending: {
-                    render: <ToastContent type="info" message={messages.pending} button={button} id={id} />,
-                    icon: <Spinner />,
-                },
-                success: {
-                    render: ({ data }) => {
-                        const success =
-                            typeof messages.success === 'function' ? messages.success(data) : data || messages.success
-                        return <ToastContent type="success" message={success} button={button} id={id} />
-                    },
-                    icon: successIcon(),
-                },
-                error: {
-                    render: ({ data }) => {
-                        return (
-                            <ToastContent
-                                type="error"
-                                message={withIncidentNote(withClickableUrls(data?.message || messages.error))}
-                                button={button}
-                                id={id}
-                            />
-                        )
-                    },
-                    icon: <IconErrorOutline />,
-                },
-            },
-            options
-        )
-    },
-    updateToSuccess(
-        id: number | string,
-        message: string | JSX.Element,
-        { button, ...toastOptions }: ToastOptionsWithButton = {}
-    ): void {
-        toast.update(id, {
-            render: <ToastContent type="success" message={message} button={button} id={id} />,
+    showSuccessInPlace({ options, ...spec }) {
+        toast.update(spec.id, {
+            render: toastifyContent({ ...spec, kind: 'success' }),
             type: 'success',
             icon: successIcon(),
             // react-toastify drops null props so the container's defaults apply again. This is the
@@ -394,18 +270,108 @@ export const lemonToast = {
             closeOnClick: null,
             closeButton: null,
             draggable: null,
-            ...toastOptions,
+            ...options,
         } as UpdateOptions)
     },
-    isActive(id: number | string): boolean {
-        return toast.isActive(id)
+    promise(promise, messages, spec) {
+        // see https://fkhadra.github.io/react-toastify/promise
+        return toast.promise<string | undefined, ToastError>(
+            promise,
+            {
+                pending: {
+                    render: toastifyContent({ ...spec, kind: 'loading', message: messages.pending }),
+                    icon: toastifyIcons.loading(),
+                },
+                success: {
+                    render: ({ data }) =>
+                        toastifyContent({ ...spec, kind: 'success', message: promiseSuccessMessage(messages, data) }),
+                    icon: toastifyIcons.success(),
+                },
+                error: {
+                    render: ({ data }) =>
+                        toastifyContent({ ...spec, kind: 'error', message: data?.message || messages.error }),
+                    icon: toastifyIcons.error(),
+                },
+            },
+            spec.options
+        )
     },
-    dismiss(id?: number | string): void {
-        // If a toast was created in this tick but hasn't been registered yet (due to
-        // queueMicrotask deferral), mark the ID as cancelled so the microtask skips it.
-        if (id) {
+    isActive: (id) => toast.isActive(id),
+    keepOpen: (id) => toast.update(id, { autoClose: false }),
+    dismiss(id) {
+        if (id !== undefined && pendingIds.has(id)) {
             cancelledIds.add(id)
         }
         toast.dismiss(id)
+    },
+}
+
+function backend(): ToastBackend {
+    return quillToastsMounted() ? quillToastBackend : toastifyBackend
+}
+
+function show(
+    kind: ToastKind,
+    message: string | JSX.Element,
+    { button, secondaryButton, ...toastOptions }: ToastOptionsWithButton
+): number | string {
+    const options = ensureToastId(toastOptions, kind, message)
+    const id = options.toastId!
+    backend().show({ kind, id, message, button, secondaryButton, options })
+    return id
+}
+
+/** The toolbar bundle initializes a named posthog-js instance, so this default one stays unloaded there. */
+function captureToast(event: string, message: string, button: ToastButton | undefined, toastId: unknown): void {
+    if (posthog.__loaded) {
+        posthog.capture(event, { message, button: button?.label, toastId })
+    }
+}
+
+export const lemonToast = {
+    info(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
+        return show('info', message, options)
+    },
+    loading(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
+        return show('loading', message, options)
+    },
+    success(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
+        return show('success', message, options)
+    },
+    warning(message: string | JSX.Element, options: ToastOptionsWithButton = {}) {
+        captureToast('toast warning', String(message), options.button, options.toastId)
+        return show('warning', message, options)
+    },
+    error(message: string | JSX.Element, { button, hideButton, capturedMessage, ...options }: ErrorToastOptions = {}) {
+        captureToast('toast error', capturedMessage ?? String(message), button, options.toastId)
+        return show('error', message, {
+            ...options,
+            button: button !== undefined ? button : hideButton ? undefined : GET_HELP_BUTTON,
+        })
+    },
+    promise(
+        promise: Promise<any>,
+        messages: ToastPromiseMessages,
+        { button, ...toastOptions }: ToastOptionsWithButton = {}
+    ): Promise<any> {
+        const options = ensureToastId(toastOptions, 'promise')
+        return backend().promise(promise, messages, { id: options.toastId!, button, options })
+    },
+    updateToSuccess(
+        id: number | string,
+        message: string | JSX.Element,
+        { button, ...options }: ToastOptionsWithButton = {}
+    ): void {
+        backend().showSuccessInPlace({ id, message, button, options: { ...options, toastId: id } })
+    },
+    isActive(id: number | string): boolean {
+        return backend().isActive(id)
+    },
+    /** Stops the toast's auto-dismiss timer, for when the user is busy with something it opened. */
+    keepOpen(id: number | string): void {
+        backend().keepOpen(id)
+    },
+    dismiss(id?: number | string): void {
+        backend().dismiss(id)
     },
 }

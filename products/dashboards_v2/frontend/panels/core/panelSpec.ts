@@ -30,6 +30,15 @@ export type PanelSpec<Config, Type extends string = string> = {
     /** The shape of `config` on panels of this type. Every saved config is checked against it before it is used. */
     configSchema: z.ZodType<Config>
     allowedCustomizations?: TileCustomization[]
+    /** Leaves the tile out of snapshots of the dashboard, such as an image or a printed page. */
+    showOnInteractiveOnly?(panel: ContentPanel<Config>): boolean
+    /** False stops a person dragging, resizing, moving or removing the tile, though other tiles can still push it down. Left out, every tile is movable. */
+    movable?(panel: ContentPanel<Config>): boolean
+    /**
+     * True keeps the panel mounted after it scrolls out of view, so state it holds itself, such as a picked tab or a
+     * draft, is still there when a person scrolls back. Each such panel stays in memory, so leave it out for charts.
+     */
+    keepMounted?(panel: ContentPanel<Config>): boolean
 }
 
 /**
@@ -43,10 +52,17 @@ export type PanelTypeSpec<Type extends string = string> = {
     sizeOf: SizeOf
     configError(config: SavedPanel['config']): z.ZodError | null
     allowedCustomizations?: TileCustomization[]
+    showOnInteractiveOnly(panel: SavedPanel): boolean
+    movable(panel: SavedPanel): boolean
+    keepMounted(panel: SavedPanel): boolean
 }
 
 export function definePanelSpec<Config, const Type extends string>(spec: PanelSpec<Config, Type>): PanelTypeSpec<Type> {
-    const { configSchema, sizeFor } = spec
+    const { configSchema, sizeFor, showOnInteractiveOnly, movable, keepMounted } = spec
+    const checkParsed = (check: ((panel: ContentPanel<Config>) => boolean) | undefined, panel: SavedPanel): boolean => {
+        const config = parseOnce(configSchema, panel.config)
+        return !!check && config.success && check({ ...panel, config: config.data })
+    }
     return {
         type: spec.type,
         size: spec.size,
@@ -59,6 +75,12 @@ export function definePanelSpec<Config, const Type extends string>(spec: PanelSp
             return result.success ? null : result.error
         },
         allowedCustomizations: spec.allowedCustomizations,
+        showOnInteractiveOnly: (panel) => checkParsed(showOnInteractiveOnly, panel),
+        keepMounted: (panel) => checkParsed(keepMounted, panel),
+        movable: (panel) => {
+            const config = parseOnce(configSchema, panel.config)
+            return !movable || !config.success || movable({ ...panel, config: config.data })
+        },
     }
 }
 

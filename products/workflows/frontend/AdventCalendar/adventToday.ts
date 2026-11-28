@@ -9,8 +9,12 @@ function clampDay(day: number): number {
     return Math.max(0, Math.min(ADVENT_LAST_DAY, Math.floor(day)))
 }
 
+function isBeforeDecember(now: Date): boolean {
+    return now.getFullYear() < ADVENT_YEAR || (now.getFullYear() === ADVENT_YEAR && now.getMonth() < 11)
+}
+
 function dayOfDate(now: Date): number {
-    if (now.getFullYear() < ADVENT_YEAR || (now.getFullYear() === ADVENT_YEAR && now.getMonth() < 11)) {
+    if (isBeforeDecember(now)) {
         return 0
     }
     if (now.getFullYear() > ADVENT_YEAR) {
@@ -19,7 +23,16 @@ function dayOfDate(now: Date): number {
     return clampDay(now.getDate())
 }
 
-export function adventToday(now: Date, { requestedDay, canPickDay }: AdventDayOverride): number {
-    const day = canPickDay && requestedDay?.trim() ? Number(requestedDay) : NaN
+function pickedDay(now: Date, { requestedDay, canPickDay }: AdventDayOverride): number {
+    const mayPick = canPickDay || isBeforeDecember(now)
+    return mayPick && requestedDay?.trim() ? Number(requestedDay) : NaN
+}
+
+export function adventPicksDay(now: Date, override: AdventDayOverride): boolean {
+    return Number.isFinite(pickedDay(now, override))
+}
+
+export function adventToday(now: Date, override: AdventDayOverride): number {
+    const day = pickedDay(now, override)
     return Number.isFinite(day) ? clampDay(day) : dayOfDate(now)
 }

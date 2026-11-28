@@ -70,7 +70,7 @@ class SplunkObservabilityCloudSource(
             category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
             label="Splunk Observability Cloud",
             releaseStatus=ReleaseStatus.BETA,
-            caption="""Sync your Splunk Observability Cloud (formerly SignalFx) detectors, alert history, events, audit events, SLOs, synthetic tests and their runs, dashboards, roles, clients, and metric metadata into the PostHog Data warehouse.
+            caption="""Sync your Splunk Observability Cloud (formerly SignalFx) detectors, alert history, events, audit events, SLOs, synthetic tests and their runs, dashboards, navigators, data links, roles, clients, and metric and tag metadata into the PostHog Data warehouse.
 
 You need an access token with **API** permission — an org access token or a user session token both work. Create one under **Settings > Access tokens** in Splunk Observability Cloud. Your realm (e.g. `us0`, `eu0`) is shown on your profile page.
 

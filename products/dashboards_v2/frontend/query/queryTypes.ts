@@ -30,6 +30,8 @@ export type FrameMeta = {
 /** What a panel asks the host's runner to run. The time range is the panel's own, or the one around it. */
 export type QueryRequest = {
     query: PanelQuery
+    /** The id of the project the query reads. Left out, it reads the project the host's runner was made for. */
+    project?: number
     /** Left out, the query runs on the range saved in it. */
     time?: TimeRange
     legend?: string
