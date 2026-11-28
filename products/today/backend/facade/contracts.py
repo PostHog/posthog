@@ -20,9 +20,12 @@ from .enums import (
     HighlightPriority,
     HighlightsStatus,
     HighlightUnit,
+    HogAccessory,
     ImpactNumberKey,
     KeyClauseRole,
     PulseSlotStatus,
+    SeasonalActionKind,
+    SeasonalItemIcon,
 )
 
 if TYPE_CHECKING:
@@ -350,3 +353,35 @@ class HighlightSource:
     scopes: tuple[str, ...] = ()
     pulse_order: int = 0
     number_names: Callable[["Team", "User", list[str]], dict[str, str]] | None = None
+
+
+@dataclass(frozen=True)
+class SeasonalAction:
+    kind: SeasonalActionKind
+    prompt: str | None = None
+
+
+@dataclass(frozen=True)
+class SeasonalChecklistItem:
+    key: str
+    title: str
+    description: str
+    icon: SeasonalItemIcon | None
+    action: SeasonalAction
+    done: bool | None
+
+
+@dataclass(frozen=True)
+class SeasonalChecklist:
+    campaign: str
+    title: str
+    description: str
+    reason: str | None
+    badge: str | None
+    bubble: str
+    done_title: str
+    done_description: str
+    accessories: list[HogAccessory]
+    snow: bool
+    lights: bool
+    items: list[SeasonalChecklistItem]

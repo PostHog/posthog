@@ -81,3 +81,44 @@ class HighlightInterval(LabeledStrEnum):
     DAY = "day", "Day"
     WEEK = "week", "Week"
     MONTH = "month", "Month"
+
+
+class SeasonalActionKind(LabeledStrEnum):
+    ASK_AI = "ask_ai", "Do it with PostHog AI"
+
+
+class SeasonalItemIcon(LabeledStrEnum):
+    BELL = "bell", "Bell"
+    BUG = "bug", "Bug"
+    CHECK = "check", "Check"
+    FLAG = "flag", "Flag"
+    GRAPH = "graph", "Graph"
+    LAPTOP = "laptop", "Laptop"
+    MESSAGE = "message", "Message"
+    NOTIFICATION = "notification", "Notification"
+    PLUG = "plug", "Plug"
+    PULSE = "pulse", "Pulse"
+    ROCKET = "rocket", "Rocket"
+    SERVER = "server", "Server"
+    SPARKLES = "sparkles", "Sparkles"
+    TOGGLE = "toggle", "Toggle"
+    WARNING = "warning", "Warning"
+
+
+class HogAccessory(LabeledStrEnum):
+    BERET = "beret", "Beret"
+    CAP = "cap", "Cap"
+    CHEF = "chef", "Chef hat"
+    COWBOY = "cowboy", "Cowboy hat"
+    EYEPATCH = "eyepatch", "Eyepatch"
+    FLAG = "flag", "Flag"
+    GLASSES = "glasses", "Glasses"
+    GRADUATION = "graduation", "Graduation cap"
+    PARROT = "parrot", "Parrot"
+    PARTY = "party", "Party hat"
+    PINEAPPLE = "pineapple", "Pineapple"
+    SUNGLASSES = "sunglasses", "Sunglasses"
+    TOPHAT = "tophat", "Top hat"
+    XMAS_ANTLERS = "xmas-antlers", "Christmas antlers"
+    XMAS_HAT = "xmas-hat", "Christmas hat"
+    XMAS_SCARF = "xmas-scarf", "Christmas scarf"

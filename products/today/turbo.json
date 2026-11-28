@@ -13,7 +13,9 @@
                 "backend/migrations/**",
                 "backend/scopes.py",
                 "backend/apps.py",
-                "backend/logic/highlight_rules.py"
+                "backend/logic/highlight_rules.py",
+                "backend/logic/seasonal_checklist.py",
+                "backend/admin.py"
             ],
             "outputs": [],
             "cache": true
