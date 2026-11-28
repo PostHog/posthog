@@ -29,10 +29,10 @@ type Pending = {
     context: Record<string, unknown>
     signal?: AbortSignal
     retriedBusy?: boolean
-    answered?: boolean
 }
 
-type Running = { batch: Pending[]; controller: AbortController }
+// `unanswered` belongs to the stream, so a query answered busy and sent again counts as answered on its first stream.
+type Running = { batch: Pending[]; controller: AbortController; unanswered: Map<number, Pending> }
 
 export interface QueryBatchRunnerOptions {
     /** Read when a query is asked, and added to its batch's timing event, such as the tab on screen. */
@@ -149,11 +149,10 @@ async function postBatch(
 
 async function runBatch(
     teamId: number,
-    { batch, controller }: Running,
+    { batch, controller, unanswered }: Running,
     timer: QueryBatchTimer,
     retry: (pending: Pending) => void
 ): Promise<void> {
-    const unanswered = new Map(batch.map((pending, index) => [index, pending]))
     let error = new Error(NO_ANSWER)
     try {
         const response = await postBatch(
@@ -176,12 +175,10 @@ async function runBatch(
                         return
                     }
                     unanswered.delete(line.i)
-                    pending.answered = true
                     // Another tab, or a slot not yet freed, held this person's running batches.
                     const busy = line.error === BUSY_ERROR && !pending.retriedBusy && !pending.signal?.aborted
                     timer.line(line, busy)
                     if (busy) {
-                        pending.answered = false
                         pending.retriedBusy = true
                         pending.queuedAt = performance.now()
                         retry(pending)
@@ -242,7 +239,7 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             return
         }
         for (const stream of running) {
-            if (stream.batch.includes(pending) && stream.batch.every((one) => one.answered || one.signal?.aborted)) {
+            if (stream.batch.includes(pending) && [...stream.unanswered.values()].every((one) => one.signal?.aborted)) {
                 stream.controller.abort()
             }
         }
@@ -267,7 +264,11 @@ export function createQueryBatchRunner(teamId: number, options: QueryBatchRunner
             const id = nextStream++
             open.add(id)
             const busy: Pending[] = []
-            const current: Running = { batch, controller: new AbortController() }
+            const current: Running = {
+                batch,
+                controller: new AbortController(),
+                unanswered: new Map(batch.map((pending, index) => [index, pending])),
+            }
             running.add(current)
             const batchTimer = new QueryBatchTimer(board, batch)
             void runBatch(teamId, current, batchTimer, (pending) => busy.push(pending)).finally(() => {
