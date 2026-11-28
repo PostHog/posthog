@@ -330,7 +330,15 @@ describe('cohortEditLogic', () => {
                 startsOn: false,
                 notifications: true,
                 state: 'building',
-                promises: true,
+                promises: "We'll notify you when it's ready.",
+            },
+            {
+                name: 'a turn-on with notifications on, on an instance that sends email',
+                startsOn: false,
+                notifications: true,
+                emailServiceAvailable: true,
+                state: 'building',
+                promises: "We'll notify you in PostHog and by email when it's ready.",
             },
             {
                 name: 'a turn-on with notifications off',
@@ -355,7 +363,7 @@ describe('cohortEditLogic', () => {
             },
         ] as const)(
             'after $name, promises a notification: $promises',
-            async ({ startsOn, notifications, state, promises }) => {
+            async ({ startsOn, notifications, emailServiceAvailable = false, state, promises }) => {
                 const before: CohortRealtimeReadinessApi = startsOn
                     ? { ...readyRealtime, state: 'needs_attention', ready_at: null }
                     : { ...readyRealtime, state: 'off', ready_at: null }
@@ -378,6 +386,10 @@ describe('cohortEditLogic', () => {
                 })
                 await initCohortLogic({ id: 1 })
                 featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: notifications })
+                preflightLogic.actions.loadPreflightSuccess({
+                    ...preflightLogic.values.preflight,
+                    email_service_available: emailServiceAvailable,
+                } as any)
                 logic.actions.setCohort({ ...mockCohort, realtime_enabled: startsOn, realtime: before })
 
                 await expectLogic(logic, () => {
@@ -387,9 +399,7 @@ describe('cohortEditLogic', () => {
                     .toFinishAllListeners()
 
                 expect((lemonToast.success as jest.Mock).mock.calls).toEqual(
-                    promises
-                        ? [["Realtime is on, and PostHog is preparing this cohort. We'll notify you when it's ready."]]
-                        : []
+                    promises ? [[`Realtime is on, and PostHog is preparing this cohort. ${promises}`]] : []
                 )
             }
         )

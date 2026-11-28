@@ -85,10 +85,10 @@ import type {
 import type { CohortRealtimeSwitchAction } from 'products/cohorts/frontend/realtime/CohortRealtimeStatus'
 import {
     READINESS_GRACE_POLLS,
-    READY_NOTIFICATION_PROMISE,
     REALTIME_POLL_INTERVAL_MS,
     canTurnOnRealtime,
     isBuildingHistory,
+    readyNotificationPromise,
 } from 'products/cohorts/frontend/realtime/realtimeReadiness'
 import { personsLogic } from 'products/persons/frontend/logics/personsLogic'
 
@@ -1491,7 +1491,7 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
                 values.featureFlags[FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]
             ) {
                 lemonToast.success(
-                    `Realtime is on, and PostHog is preparing this cohort. ${READY_NOTIFICATION_PROMISE}`
+                    `Realtime is on, and PostHog is preparing this cohort. ${readyNotificationPromise(!!values.preflight?.email_service_available)}`
                 )
             }
             const saved = cohortsModel.values.cohortsById[realtimeSwitch.id]

@@ -33,6 +33,7 @@ from posthog.tasks.email import (
     send_batch_export_run_failure,
     send_canary_email,
     send_code_based_verification,
+    send_cohort_realtime_ready_email,
     send_discussions_mentioned,
     send_email_change_emails,
     send_email_sender_domain_sending_stopped,
@@ -66,7 +67,7 @@ from posthog.tasks.email import (
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.fixtures import create_app_metric2
-from posthog.test.project_access import enable_access_control
+from posthog.test.project_access import enable_access_control, restrict_project
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -746,6 +747,51 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         MockEmailMessage.assert_not_called()
         task.refresh_from_db()
         assert task.pr_ready_email_sent_at is not None
+
+    def test_send_cohort_realtime_ready_email(self, MockEmailMessage: MagicMock) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "cohort-owner@posthog.com")
+        team = user.team
+        assert team is not None
+        turned_on_at = "2026-11-27T15:25:46.123456+00:00"
+
+        send_cohort_realtime_ready_email(team.id, 42, "Buyers from example.com", user.id, turned_on_at)
+        send_cohort_realtime_ready_email(team.id, 42, "Buyers from example.com", user.id, turned_on_at)
+
+        assert len(mocked_email_messages) == 1
+        assert mocked_email_messages[0].campaign_key == f"cohort_realtime_ready_42_{turned_on_at}"
+        html_body = mocked_email_messages[0].html_body
+        assert f'href="{settings.SITE_URL}/project/{team.project_id}/cohorts/42?utm_' in html_body
+        assert "example.com" not in html_body
+        assert "Buyers from example.&#8203;com" in html_body
+
+    @parameterized.expand(
+        [
+            ("email_unavailable",),
+            ("inactive_user",),
+            ("removed_membership",),
+            ("no_access_to_the_project",),
+        ]
+    )
+    def test_send_cohort_realtime_ready_email_skips_when_the_user_cannot_be_told(
+        self, MockEmailMessage: MagicMock, case: str
+    ) -> None:
+        _org, user = create_org_team_and_user("2022-01-02 00:00:00", "cohort-former-member@posthog.com")
+        team = user.team
+        assert team is not None
+        membership = OrganizationMembership.objects.get(organization=team.organization, user=user)
+        if case == "inactive_user":
+            user.is_active = False
+            user.save(update_fields=["is_active"])
+        elif case == "removed_membership":
+            membership.delete()
+        elif case == "no_access_to_the_project":
+            restrict_project(team, plain_members=[membership])
+
+        with override_instance_config("EMAIL_ENABLED", case != "email_unavailable"):
+            send_cohort_realtime_ready_email(team.id, 42, "Buyers", user.id, "2026-11-27T15:25:46.123456+00:00")
+
+        MockEmailMessage.assert_not_called()
 
     @patch("posthog.tasks.email.ph_scoped_capture")
     def test_send_email_verification_code(self, mock_scoped_capture: MagicMock, MockEmailMessage: MagicMock) -> None:

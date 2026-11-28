@@ -72,6 +72,9 @@ logger = structlog.get_logger(__name__)
 # task pins the same string via ``name=`` so moving its module can't silently rename it out from
 # under us; test_finalize.py asserts the two still agree.
 FLAGS_CACHE_TASK = "products.feature_flags.backend.tasks.invalidate_team_flags_cache_for_cohorts"
+# Importing posthog.tasks.email runs posthog/tasks/__init__.py, which imports this module through calculate_cohort,
+# so a static import of the email task here is circular. The task pins this name too.
+READY_EMAIL_TASK = "posthog.tasks.email.send_cohort_realtime_ready_email"
 
 READINESS_STAMPS_COUNTER = Counter(
     "posthog_cohort_backfill_readiness_stamps_total",
@@ -273,11 +276,17 @@ def finalize_backfill_runs() -> FinalizerPass:
 
 
 def _notify_people_waiting_for_cohorts(team_ids: set[int]) -> None:
-    """Tell each user who turned realtime on for a cohort of these teams, once flags can target that cohort.
+    """Tell each user who turned realtime on for a cohort of these teams, in PostHog and by email, once flags can
+    target that cohort.
 
     A cohort becomes targetable when its own last missing stamp lands or when that of a cohort it includes does,
     and both put the team in the pass's ready cohorts. A raise leaves the cohort's recipient in place, so the next
-    pass that makes a cohort of the team ready tries again, and the idempotency key stops a second notification.
+    pass that makes a cohort of the team ready tries again. The idempotency key then stops a second notification,
+    and `create_notification` returns the stored one, so the email is queued again. Its campaign key holds the same
+    turn-on time, which stops a second email.
+    The email is queued only for a notification that `create_notification` returns, because the email has no setting
+    of its own. So it follows the rollout of the `real-time-notifications` flag, and muting the in-app type stops it
+    too. A failed evaluation of that flag drops the email with the notification.
     A notification that `create_notification` drops clears the recipient too, because keeping it would evaluate
     the notifications flag again for that cohort in every later pass that readies a cohort of the team.
     """
@@ -314,6 +323,18 @@ def _notify_people_waiting_for_cohorts(team_ids: set[int]) -> None:
             if notification is None:
                 logger.info(
                     "cohort_backfill_finalizer_ready_notice_dropped", team_id=cohort.team_id, cohort_id=cohort.id
+                )
+            else:
+                current_app.send_task(
+                    READY_EMAIL_TASK,
+                    args=(
+                        cohort.team_id,
+                        cohort.id,
+                        cohort.name or "",
+                        cohort.realtime_ready_notify_user_id,
+                        cohort.realtime_enabled_at.isoformat(),
+                    ),
+                    queue=CeleryQueue.EMAIL.value,
                 )
             # A conditional update sends no `post_save`, so nothing rebuilds, and it leaves in place a turn-off or a
             # new turn-on that committed after the read above.
