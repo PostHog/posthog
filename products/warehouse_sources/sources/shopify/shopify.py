@@ -169,8 +169,8 @@ SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MATCH = "401 Client Error: Unauthorized"
 # A non-retryable sync error turns the table's sync off, and reconnecting resumes only tables
 # that still sync, so these sync-time messages end with re-enabling the sync.
 SHOPIFY_GRAPHQL_UNAUTHORIZED_ERROR_MESSAGE = (
-    "Shopify no longer accepts your access token. Reinstall the app on your store, update the "
-    "source's credentials, then re-enable the sync."
+    "Shopify no longer accepts your access token. Check that the app is still installed on your "
+    "store and your credentials are current, then re-enable the sync."
 )
 # The denied field can be nested and need a scope other than the table's own read scope.
 SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE = (
