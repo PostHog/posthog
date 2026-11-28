@@ -1072,6 +1072,20 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
 
         assert [session["session_id"] for session in listed["sessions"]] == ["late-session"]
 
+    def test_lists_no_sessions_for_a_cutoff_at_the_start_of_time(self, _flag):
+        clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
+        message_id = self._send(30, "early@example.com", clicked)
+        self._land("early", "early-session", message_id, at=NOW - timedelta(minutes=20))
+        flush_persons_and_events()
+
+        with self.capture_select_queries() as queries:
+            listed = self._impact_sessions(
+                date_from=(NOW - timedelta(days=1)).isoformat(), landed_before="0001-01-01T00:00:00Z"
+            )
+
+        assert listed == {"sessions": [], "has_more": False}
+        assert queries == []
+
     def test_finds_an_older_landing_behind_a_full_cap_of_recent_sends(self, _flag):
         clicked = [("sent", 1, ""), ("delivered", 2, ""), ("clicked", 60, "")]
         older_send = self._send(120, "reader@example.com", clicked)
