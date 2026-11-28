@@ -75,7 +75,7 @@ from posthog.models.person.util import (
     get_persons_by_uuids,
     get_persons_mapped_by_distinct_id,
 )
-from posthog.permissions import is_authenticated_via_project_secret_api_key
+from posthog.permissions import is_authenticated_via_project_secret_api_key, scopes_caller_lacks
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.rate_limit import (
     ClickHouseBurstRateThrottle,
@@ -1902,21 +1902,28 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def _with_transactional_log(self, rows: Sequence[MessageAsset]) -> Sequence[MessageAsset]:
         sends = {
-            uuid.UUID(row.invocation_id): row.function_id
+            row.invocation_id: row.function_id
             for row in rows
             if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and UUIDT.is_valid_uuid(row.invocation_id)
         }
-        if not sends:
+        # The log's own endpoints need hog_flow:read, so a token without it learns nothing of what the log keeps.
+        if not sends or scopes_caller_lacks(self.request, ["hog_flow:read"]):
             return rows
         try:
-            access = get_workflow_view_access(team_id=self.team_id, user_access_control=self.user_access_control)
-            kept = transactional_emails_in_log(self.team_id, list(sends.items()), access=access)
+            access = get_workflow_view_access(
+                team_id=self.team_id, user_access_control=self.user_access_control, workflow_ids=set(sends.values())
+            )
+            kept = transactional_emails_in_log(
+                self.team_id,
+                [(uuid.UUID(message_id), workflow_id) for message_id, workflow_id in sends.items()],
+                access=access,
+            )
         except Exception as error:
             capture_exception(error)
             return rows
         return [
             dataclasses.replace(row, in_transactional_email_log=uuid.UUID(row.invocation_id) in kept)
-            if row.action_id == TRANSACTIONAL_EMAIL_ACTION_ID and UUIDT.is_valid_uuid(row.invocation_id)
+            if row.invocation_id in sends
             else row
             for row in rows
         ]

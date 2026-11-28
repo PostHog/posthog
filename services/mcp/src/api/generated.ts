@@ -102920,7 +102920,7 @@ export namespace Schemas {
       /** When the message was sent. */
       sent_at: string;
       /**
-         * For a transactional email: true when the transactional email log still keeps the send and the user may view it, so its send page opens. Null for a workflow email, or when the log could not be checked.
+         * For a transactional email: true when the transactional email log still keeps the send and the user may view it, so its send page opens. Null for a workflow email, for a token without hog_flow:read, or when the log could not be checked.
          * @nullable
          */
       in_transactional_email_log: boolean | null;

@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime, timedelta
 from uuid import NAMESPACE_URL, UUID, uuid5
 from zoneinfo import ZoneInfo
@@ -7,7 +7,7 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 from unittest.mock import patch
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
@@ -20,6 +20,7 @@ from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.models import Element, OrganizationMembership, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
@@ -74,6 +75,7 @@ IMPACT_COUNTS = {
 LONG_ID_SENDS = 20
 CLICKED_SENDS_PAST_ONE_BATCH = 60
 SMALL_MAX_QUERY_SIZE = 16 * 1024
+SENDS_PAST_ONE_QUERY = 120
 
 
 @time_machine.travel(NOW, tick=False)
@@ -100,6 +102,7 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
         domain: str = "mail.example.com",
         keyed: bool = False,
         status_consumer_behind: bool = False,
+        events_consumer_behind: bool = False,
         first: str = "queued",
         message_id: str | None = None,
     ) -> str:
@@ -132,6 +135,8 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
                     }
                 ],
             )
+        if events_consumer_behind:
+            return message_id
         sync_execute(
             f"""
             INSERT INTO {EMAIL_STATUS_EVENTS_DATA_TABLE}
@@ -326,39 +331,103 @@ class TestTransactionalEmailLog(ClickhouseTestMixin, APIBaseTest):
             ("failed", "provider_error"),
         ]
 
-    def test_a_persons_emails_say_which_sends_the_log_keeps(self, _flag):
+    def _record_person_emails(self, sends: Mapping[str, tuple[int, str, str | None]]) -> str:
         person = create_person(team=self.team, distinct_ids=["jane"])
-        restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
-        sends = {
-            "kept a week": self._send(7 * 24 * 60, "jane@example.com", [("sent", 1, "")], keyed=True),
-            "not in email_status yet": self._send(10, "jane@example.com", [("sent", 1, "")]),
-            "of a denied workflow": self._send(20, "jane@example.com", [("sent", 1, "")], workflow_id=restricted),
-            "gone from the log": str(UUIDT(unix_time_ms=int((NOW - timedelta(days=2)).timestamp() * 1000))),
-            "workflow email": str(UUIDT(unix_time_ms=int((NOW - timedelta(days=3)).timestamp() * 1000))),
-        }
-        for name, message_id in sends.items():
+        for name, (minutes_ago, message_id, workflow_id) in sends.items():
             self._record_distinct_id(
                 message_id,
                 "jane",
                 "jane@example.com",
-                NOW - timedelta(days=1),
+                NOW - timedelta(minutes=minutes_ago, seconds=-1),
                 person_id=str(person.uuid),
                 action_id="email-step" if name == "workflow email" else "transactional_email",
-                workflow_id=restricted if name == "of a denied workflow" else None,
+                workflow_id=workflow_id,
             )
+        return f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/"
+
+    @override_settings(CLICKHOUSE_EVENTS_ONLINE_HOST="events-cluster.invalid")
+    def test_a_persons_emails_say_which_sends_their_send_page_opens(self, _flag):
+        restricted = create_workflow_for_test(team_id=self.team.id, name="Payroll").id
+        sent = [("sent", 1, "")]
+        sends: dict[str, tuple[int, str, str | None]] = {
+            "keyed a week ago": (7 * 24 * 60, self._send(7 * 24 * 60, "jane@example.com", sent, keyed=True), None),
+            "keyed, not in email_status yet": (
+                10,
+                self._send(10, "jane@example.com", sent, keyed=True, status_consumer_behind=True),
+                None,
+            ),
+            "keyed, not in the log yet": (
+                30,
+                self._send(30, "jane@example.com", sent, keyed=True, events_consumer_behind=True),
+                None,
+            ),
+            "sent three hours ago": (180, self._send(180, "jane@example.com", sent), None),
+            "of a denied workflow": (20, self._send(20, "jane@example.com", sent, workflow_id=restricted), restricted),
+            "gone from the log": (
+                2 * 24 * 60,
+                str(UUIDT(unix_time_ms=int((NOW - timedelta(days=2)).timestamp() * 1000))),
+                None,
+            ),
+            "workflow email": (
+                3 * 24 * 60,
+                str(UUIDT(unix_time_ms=int((NOW - timedelta(days=3)).timestamp() * 1000))),
+                None,
+            ),
+        }
+        url = self._record_person_emails(sends)
         self._deny_member("hog_flow", resource_id=restricted)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/persons/{person.uuid}/emails/")
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            response = self.client.get(url)
 
         assert response.status_code == status.HTTP_200_OK, response.json()
-        kept = {row["invocation_id"]: row["in_transactional_email_log"] for row in response.json()}
-        assert {name: kept[message_id] for name, message_id in sends.items()} == {
-            "kept a week": True,
-            "not in email_status yet": True,
+        listed = {row["invocation_id"]: row["in_transactional_email_log"] for row in response.json()}
+        assert {name: listed[message_id] for name, (_, message_id, _) in sends.items()} == {
+            "keyed a week ago": True,
+            "keyed, not in email_status yet": True,
+            "keyed, not in the log yet": False,
+            "sent three hours ago": True,
             "of a denied workflow": False,
             "gone from the log": False,
             "workflow email": None,
         }
+        opens = {
+            name: self.client.get(self._url(f"{message_id}/")).status_code == status.HTTP_200_OK
+            for name, (_, message_id, _) in sends.items()
+            if name != "workflow email"
+        }
+        assert opens == {name: listed[message_id] for name, (_, message_id, _) in sends.items() if name in opens}
+
+    def test_a_persons_emails_say_what_the_log_keeps_for_a_page_past_one_query(self, _flag):
+        sends = {
+            f"send {minutes_ago}": (minutes_ago, self._send(minutes_ago, "jane@example.com", [("sent", 1, "")]), None)
+            for minutes_ago in range(10, 10 + SENDS_PAST_ONE_QUERY)
+        }
+        url = self._record_person_emails(sends)
+
+        with patch.dict(
+            CLICKHOUSE_PER_TEAM_QUERY_SETTINGS, {str(self.team.id): {"max_query_size": SMALL_MAX_QUERY_SIZE}}
+        ):
+            response = self.client.get(f"{url}?limit={SENDS_PAST_ONE_QUERY}")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["in_transactional_email_log"] for row in response.json()] == [True] * SENDS_PAST_ONE_QUERY
+
+    @parameterized.expand(
+        [("without_workflow_access", ["person:read"], None), ("with_it", ["person:read", "hog_flow:read"], True)]
+    )
+    def test_a_persons_emails_say_what_the_log_keeps_only_to_a_token_that_reads_the_log(
+        self, _flag, _name, scopes, expected
+    ):
+        message_id = self._send(10, "jane@example.com", [("sent", 1, "")])
+        url = self._record_person_emails({"a send": (10, message_id, None)})
+        key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="scoped", user=self.user, secure_value=hash_key_value(key), scopes=scopes)
+
+        response = self.client.get(url, headers={"authorization": f"Bearer {key}"})
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [row["in_transactional_email_log"] for row in response.json()] == [expected]
 
     def test_shows_the_latest_attempt_of_a_key_refused_the_day_before(self, _flag):
         message_id = self._send(60 * 24, "jane@example.com", [("failed", 1, "recipient_suppressed")], keyed=True)

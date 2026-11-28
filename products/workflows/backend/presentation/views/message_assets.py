@@ -38,7 +38,8 @@ class PersonEmailSerializer(MessageAssetSerializer):
     in_transactional_email_log = serializers.BooleanField(
         allow_null=True,
         help_text="For a transactional email: true when the transactional email log still keeps the send and the "
-        "user may view it, so its send page opens. Null for a workflow email, or when the log could not be checked.",
+        "user may view it, so its send page opens. Null for a workflow email, for a token without hog_flow:read, or "
+        "when the log could not be checked.",
     )
 
 

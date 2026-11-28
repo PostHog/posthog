@@ -93,7 +93,7 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             const sendPages =
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] &&
                 !!values.featureFlags[FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]
-            const url = sendPages && asset.in_transactional_email_log !== false ? transactionalSendPageUrl(asset) : null
+            const url = sendPages && asset.in_transactional_email_log === true ? transactionalSendPageUrl(asset) : null
             if (url) {
                 router.actions.push(url)
             } else {

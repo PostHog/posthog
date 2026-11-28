@@ -13,6 +13,8 @@ from typing import Any, cast
 from uuid import UUID
 from zoneinfo import ZoneInfo
 
+from posthog.schema import HogQLQueryModifiers
+
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS, HogQLGlobalSettings
 from posthog.hogql.parser import parse_select
@@ -24,6 +26,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.settings import CLICKHOUSE_PER_TEAM_QUERY_SETTINGS
 
 from products.messaging.backend.facade.contracts import (
@@ -54,7 +57,7 @@ from products.messaging.backend.models.email_status_sql import (
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
 from products.messaging.backend.services.code_emails import code_emails_by_workflow
-from products.messaging.backend.services.transactional_email_status import kept_message_ids, message_created_at
+from products.messaging.backend.services.transactional_email_status import message_created_at, messages_created_at
 from products.workflows.backend.facade.api import is_email_workflow_run_link_tag_enabled
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
@@ -70,6 +73,10 @@ MAX_CONVERSION_WINDOW_DAYS = 30
 # The results read at most this many recipients, newest sends first.
 MAX_RESULTS_RECIPIENTS = 10_000
 _SINCE_MS_LITERAL_BYTES = len("1700000000000, ")
+_SEND_WINDOW_BYTES = len(
+    "(message_id = '00000000-0000-0000-0000-000000000000' AND created_at >= '2026-01-01 00:00:00.000000'"
+    " AND created_at < '2026-01-01 00:00:00.000000') OR "
+)
 IMPACT_WINDOW_DAYS = 7
 
 # A message's rows sit together in the table's sort key, so grouping can finish each message as it reads on.
@@ -388,12 +395,51 @@ def get_transactional_email(
     )
 
 
+@events_route_scope(HogQLQueryModifiers(useNewEventsSchema=False))
 def transactional_emails_in_log(
     team_id: int, sends: Sequence[tuple[UUID, str]], *, access: WorkflowViewAccess
 ) -> set[UUID]:
-    """The sends, given as message ID and workflow ID, that the log still keeps and the reader may view."""
+    """The sends, given as message ID and workflow ID, whose page `get_transactional_email` would show the reader."""
     viewable = [message_id for message_id, workflow_id in sends if access.allows(workflow_id)]
-    return kept_message_ids(team_id, viewable, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
+    kept: set[UUID] = set()
+    for batch in _batches_by_query_size(team_id, viewable, lambda _: _SEND_WINDOW_BYTES):
+        queued = messages_created_at(team_id, batch, Workload.ONLINE, lag_fallback_table=EMAIL_STATUS_EVENTS_TABLE)
+        if queued:
+            kept |= _sends_in_log(team_id, queued, access)
+    return kept
+
+
+def _sends_in_log(team_id: int, queued: dict[UUID, datetime], access: WorkflowViewAccess) -> set[UUID]:
+    params: dict[str, Any] = {}
+    windows = []
+    for index, (message_id, queued_at) in enumerate(queued.items()):
+        params |= {
+            f"message_{index}": str(message_id),
+            f"start_{index}": queued_at - _CLOCK_SKEW,
+            f"end_{index}": queued_at + _CLOCK_SKEW,
+        }
+        windows.append(
+            f"(message_id = %(message_{index})s AND created_at >= %(start_{index})s AND created_at < %(end_{index})s)"
+        )
+    rows = _execute(
+        team_id,
+        f"""
+        SELECT message_id, delivery_status, message_function_id
+        FROM (
+            SELECT {_MESSAGE_COLUMNS}
+            FROM {EMAIL_STATUS_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s AND ({" OR ".join(windows)})
+            GROUP BY message_id
+        )
+        """,
+        params,
+        query_type="transactional_email_log_membership",
+    )
+    return {
+        UUID(str(message_id))
+        for message_id, delivery_status, workflow_id in rows
+        if delivery_status in EmailDeliveryStatus.values and access.allows(workflow_id)
+    }
 
 
 def transactional_email_stats(
