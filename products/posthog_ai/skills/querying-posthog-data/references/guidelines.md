@@ -141,7 +141,7 @@ FROM system.information_schema.tables
 WHERE table_type = 'data_warehouse' AND description ILIKE '%canonical mrr%'
 ```
 
-Column docs are searchable the same way via `system.information_schema.columns.description` (the `system.` prefix is required — a bare `information_schema.columns` is an unknown table). Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
+Column docs are searchable the same way via `system.information_schema.columns.description` (the `system.` prefix is required — a bare `information_schema.columns` is an unknown table, and ClickHouse's own `system.tables` and `system.columns` do not exist here). Prefer an `ILIKE` filter over dumping the whole catalog and scanning it yourself.
 
 **Inspect a table's columns:**
 
@@ -372,10 +372,20 @@ properties.foo['bar-baz']
 ##### Unsupported/changed functions
 
 Don't use | Use instead
-`toInt32()`, `toUInt8()`, `toFloat32()` and other non-64-bit widths | `toInt()`, `toFloat()` (`toInt64()` and `toFloat64()` work as aliases)
+`toInt32()`, `toUInt8()`, `toUInt64()`, `toInt32OrZero()`, `toFloat32()` and other non-64-bit widths | `toInt()`, `toIntOrZero()`, `toFloat()` (`toInt64()` and `toFloat64()` work as aliases)
+`parseDateTimeBestEffortOrNull()`, `parseDateTime64BestEffort()`, `toDateTimeOrNull()` | `parseDateTimeBestEffort()`, `toDateTime()`
 `toDateOrNull(timestamp)` | `toDate(timestamp)`
+`SHA256()`, `sipHash64()` | `sha1()`, `md5()`, `cityHash64()`
+`topKIf()`, `quantileExactIf()` | `quantileIf(0.9)(x, cond)`, or filter rows in `WHERE` or a subquery
+`groupUniqArray(x, 10)` | `arraySlice(groupUniqArray(x), 1, 10)`
+`groupArrayArray(x)` | `arrayFlatten(groupArray(x))`
+`trimBoth()` | `trim()`
+`leftUTF8()`, `rightUTF8()`, `substr()` | `left()`, `right()`, `substring()`
+`toTimezone()` | `toTimeZone()`
+`toStartOfFiveMinute()` | `toStartOfFiveMinutes()`
+`concat_ws()` | `concatWithSeparator()`
+`JSONKeys()` | `JSONExtractKeys()`
 `LAG()`, `LEAD()` | `lagInFrame()`, `leadInFrame()` with `ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING`
-`count(*)` | `count()`
 `cardinality(bitmap)` | `bitmapCardinality(bitmap)`
 `split()` | `splitByChar()`, `splitByString()`
 
@@ -397,7 +407,12 @@ Find the reference for [Sparkline, SemVer, Session replays, Actions, Translation
 
 ##### Other rules
 
-- Use explicit `AS` and descriptive column aliases: `min(timestamp) AS first_seen_at` instead of `min(timestamp) first`. Some short names, such as `fn`, are reserved even after `AS`; use a descriptive name or backtick-quote the alias and its references.
+- Use explicit `AS` and descriptive column aliases: `min(timestamp) AS first_seen_at` instead of `min(timestamp) first`. Without `AS`, a keyword alias such as `first`, `last`, `day`, `step`, `name`, or `rows` is a syntax error. `fn`, `fun`, `let`, `try`, `catch`, `throw`, `while`, `null`, `true`, `false`, `inf`, and `nan` are reserved even after `AS`; use a descriptive name or backtick-quote the alias and its references.
+- Never name an aggregate after a column the query reads: `max(timestamp) AS last_seen`, not `max(timestamp) AS timestamp`. An alias applies to the whole query, so `WHERE timestamp > ...` then reads the aggregate and fails with an illegal aggregation. The same goes for `sum(n) AS n` over a subquery column `n`.
+- `WITH name AS (SELECT ...)` defines a CTE, and `WITH 7 AS days` defines a constant. A scalar `WITH` over a column, like `WITH toDate(timestamp) AS day`, fails with "No scope or CTE available": compute it in the `SELECT` or a subquery.
+- A backslash in a string literal must be doubled: `match(url, '\\d+')`, `LIKE '%\\_%'`. A single `\d`, `\.`, or `\_` is a syntax error. A double quote needs no escape inside single quotes: `'say "hi"'`.
+- Values from `JSONExtractArrayRaw()` are strings. Cast them before numeric array functions: `arraySum(arrayMap(x -> toFloatOrZero(x), arr))`. `toFloat()` returns a Nullable, which `arraySum()` rejects.
+- `windowFunnel()` rejects the DateTime64 `timestamp`: pass `toUnixTimestamp(timestamp)`. Prefer `query-funnel` for funnels.
 - WHERE clause must come after all JOINs
 - No semicolons at end of queries
 - `toStartOfWeek(timestamp, 1)` for Monday start (numeric, not string)
