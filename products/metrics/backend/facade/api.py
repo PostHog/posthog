@@ -126,12 +126,7 @@ from products.metrics.backend.precompute.planner import (
     provenance_mode,
     read_plan_entries,
 )
-from products.metrics.backend.precompute.promql_plan import (
-    evaluate_stored,
-    plan_promql,
-    read_promql_entries,
-    read_raw_tail_entries,
-)
+from products.metrics.backend.precompute.promql_plan import evaluate_plan, plan_promql
 from products.metrics.backend.precompute.shadow import (
     BUILDER,
     PROMQL,
@@ -143,7 +138,7 @@ from products.metrics.backend.precompute.shadow import (
     builder_request,
     compare,
 )
-from products.metrics.backend.precompute.store import TooManySeriesError, TooManyStoredPointsError, merge_entries
+from products.metrics.backend.precompute.store import TooManySeriesError, TooManyStoredPointsError
 from products.metrics.backend.prometheus_usage import report_prometheus_api_usage as _report_prometheus_api_usage
 from products.metrics.backend.promql import run_promql_instant, run_promql_range, series_from_results
 from products.metrics.backend.query_concurrency import query_concurrency_slots
@@ -589,9 +584,7 @@ def run_precomputed_promql_query(
     if isinstance(plan, str):
         return raw_result(plan)
     try:
-        entries = read_promql_entries(plan)
-        merge_entries(entries, read_raw_tail_entries(team, plan))
-        results = evaluate_stored(plan, entries)
+        results = evaluate_plan(team, plan)
     except TooManyStoredPointsError:
         return raw_result("too much stored data to load")
     except (MetricQueryTooManyRowsError, TooManySeriesError):
