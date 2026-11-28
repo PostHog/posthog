@@ -1,3 +1,5 @@
+import json
+
 from django.db import transaction
 from django.test import TestCase, override_settings
 
@@ -7,6 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.user import User
 
+PREFERENCES_URL = "https://us.posthog.com/api/projects/2/messaging/preferences/"
 DELETION_URL = "https://us.posthog.com/api/projects/2/persons/bulk_delete/"
 
 
@@ -39,6 +42,7 @@ class TestUserAnalyticsDeletion(TestCase):
     def test_failure_is_logged_without_preventing_account_deletion(self, failure: str) -> None:
         user = User.objects.create(email="deleted@example.com", distinct_id="example-user")
         user_id = user.pk
+        responses.post(PREFERENCES_URL, json={})
         if failure == "timeout":
             responses.post(DELETION_URL, body=requests.Timeout("sensitive request details"))
         else:
@@ -55,6 +59,52 @@ class TestUserAnalyticsDeletion(TestCase):
                 with self.captureOnCommitCallbacks(execute=True):
                     User.objects.filter(pk=user.pk).delete()
         assert not User.objects.filter(pk=user_id).exists()
-        assert len(responses.calls) == (0 if failure in ("credentials", "insecure_host") else 1)
+        assert len(responses.calls) == (0 if failure in ("credentials", "insecure_host") else 2)
         assert "sensitive request details" not in str(logs.output)
         assert "phs_fake_deletion_key" not in str(logs.output)
+
+    @parameterized.expand([("US", "example-user"), ("EU", "example-user")])
+    @responses.activate
+    def test_opts_out_before_deleting_analytics(self, deployment: str, distinct_id: str) -> None:
+        responses.post(PREFERENCES_URL, json={})
+        responses.post(DELETION_URL, json={}, status=202)
+        user = User.objects.create(email="deleted@example.com", distinct_id=distinct_id)
+        with override_settings(CLOUD_DEPLOYMENT=deployment), self.captureOnCommitCallbacks(execute=True):
+            user.delete()
+            assert not responses.calls
+        assert responses.calls[0].request.url == PREFERENCES_URL
+        assert json.loads(responses.calls[0].request.body) == {"identifier": user.email, "all_marketing": False}
+        assert len(responses.calls) == 2
+        for call in responses.calls:
+            assert call.request.headers["Authorization"] == "Bearer phs_fake_deletion_key"
+        assert responses.calls[1].request.url == DELETION_URL
+        assert json.loads(responses.calls[1].request.body) == {
+            "distinct_ids": [distinct_id],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
+
+    @parameterized.expand([("http",), ("timeout",)])
+    @responses.activate
+    def test_opt_out_failure_still_requests_analytics_and_account_deletion(self, failure: str) -> None:
+        user = User.objects.create(email="deleted@example.com", distinct_id="example-user")
+        user_id = user.pk
+        responses.post(DELETION_URL, json={}, status=202)
+        if failure == "timeout":
+            responses.post(PREFERENCES_URL, body=requests.Timeout("sensitive request details"))
+        else:
+            responses.post(PREFERENCES_URL, status=403)
+        with self.assertLogs("posthog.user_analytics_deletion", level="ERROR") as logs:
+            with self.captureOnCommitCallbacks(execute=True):
+                user.delete()
+        assert not User.objects.filter(pk=user_id).exists()
+        assert len(responses.calls) == 2
+        assert responses.calls[0].request.url == PREFERENCES_URL
+        assert responses.calls[1].request.url == DELETION_URL
+        assert json.loads(responses.calls[1].request.body) == {
+            "distinct_ids": ["example-user"],
+            "delete_events": True,
+            "delete_recordings": True,
+        }
+        assert "sensitive request details" not in str(logs.output)
+        assert user.email not in str(logs.output)
