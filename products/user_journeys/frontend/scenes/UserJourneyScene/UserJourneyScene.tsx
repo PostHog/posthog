@@ -16,6 +16,7 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { Query } from '~/queries/Query/Query'
 
+import { JourneyRunsSection } from '../../components/JourneyRunsSection'
 import { JourneyStepsFlow } from '../../components/JourneyStepsFlow'
 import { UserJourneyLogicProps, userJourneyLogic } from '../../userJourneyLogic'
 
@@ -165,14 +166,7 @@ export function UserJourneyScene({ id }: UserJourneyLogicProps): JSX.Element {
 
             <SceneDivider />
 
-            <SceneSection
-                title="Deploy comparisons"
-                description="Conversion for each step before and after each deploy, to catch regressions."
-            >
-                <div className="border border-dashed rounded p-6 text-center text-secondary">
-                    Deploy comparisons aren't available yet. Once they are, each journey shows them here.
-                </div>
-            </SceneSection>
+            <JourneyRunsSection journeyId={id} journey={journey} />
         </SceneContent>
     )
 }

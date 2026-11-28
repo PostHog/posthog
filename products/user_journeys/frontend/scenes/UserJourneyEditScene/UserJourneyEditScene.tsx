@@ -26,7 +26,7 @@ export function UserJourneyEditScene({ id = 'new' }: Partial<UserJourneyFormLogi
     const userJourneysEnabled = useFeatureFlag('USER_JOURNEYS')
     const logic = userJourneyFormLogic({ id })
     const { draft, errors, isNew, saving, journeyLoading, journeyLoadError, prefillStepsSkipped } = useValues(logic)
-    const { setName, setDescription, setConversionWindow, submit, loadJourney } = useActions(logic)
+    const { setName, setDescription, setConversionWindow, setStartUrl, submit, loadJourney } = useActions(logic)
 
     if (!userJourneysEnabled || journeyLoadError === 'not_found') {
         return <NotFound object={userJourneysEnabled ? 'journey' : 'page'} />
@@ -119,6 +119,19 @@ export function UserJourneyEditScene({ id = 'new' }: Partial<UserJourneyFormLogi
                             onChange={(value) => setConversionWindow(value ?? undefined)}
                             suffix={<span className="text-secondary">minutes</span>}
                             data-attr="user-journey-conversion-window"
+                        />
+                    </LemonField.Pure>
+                    <LemonField.Pure
+                        label="Start URL"
+                        showOptional
+                        error={errors.start_url}
+                        help='The page a run opens before the first step. Leave it empty if the first step is a pageview set to "URL is" with a full address, like https://example.com/pricing.'
+                    >
+                        <LemonInput
+                            value={draft.start_url}
+                            onChange={setStartUrl}
+                            placeholder="https://example.com/pricing"
+                            data-attr="user-journey-start-url"
                         />
                     </LemonField.Pure>
                     <JourneyStepsEditor id={id} />

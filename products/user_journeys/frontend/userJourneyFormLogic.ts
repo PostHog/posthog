@@ -107,6 +107,9 @@ export interface userJourneyFormLogicActions {
     setName: (name: string) => {
         name: string
     }
+    setStartUrl: (startUrl: string) => {
+        startUrl: string
+    }
     submit: () => {
         value: true
     }
@@ -142,6 +145,7 @@ export const userJourneyFormLogic = kea<userJourneyFormLogicType>([
         setName: (name: string) => ({ name }),
         setDescription: (description: string) => ({ description }),
         setConversionWindow: (minutes: number | undefined) => ({ minutes }),
+        setStartUrl: (startUrl: string) => ({ startUrl }),
         addStep: (type: JourneyStepType) => ({ type }),
         removeStep: (stepKey: string) => ({ stepKey }),
         moveStep: (stepKey: string, direction: -1 | 1) => ({ stepKey, direction }),
@@ -167,6 +171,7 @@ export const userJourneyFormLogic = kea<userJourneyFormLogicType>([
                 setName: (state, { name }) => ({ ...state, name }),
                 setDescription: (state, { description }) => ({ ...state, description }),
                 setConversionWindow: (state, { minutes }) => ({ ...state, conversion_window_minutes: minutes }),
+                setStartUrl: (state, { startUrl }) => ({ ...state, start_url: startUrl }),
                 addStep: (state, { type }) => ({ ...state, steps: [...state.steps, emptyStep(type)] }),
                 removeStep: (state, { stepKey }) => ({
                     ...state,
@@ -200,6 +205,7 @@ export const userJourneyFormLogic = kea<userJourneyFormLogicType>([
                 setName: () => ({}),
                 setDescription: () => ({}),
                 setConversionWindow: () => ({}),
+                setStartUrl: () => ({}),
                 addStep: () => ({}),
                 removeStep: () => ({}),
                 moveStep: () => ({}),
@@ -282,6 +288,8 @@ export const userJourneyFormLogic = kea<userJourneyFormLogicType>([
                           description: payload.description,
                           conversion_window_minutes: payload.conversion_window_minutes,
                           steps: payload.steps,
+                          // An update reads null as "keep the stored value", so an empty string clears it.
+                          start_url: payload.start_url ?? '',
                       })
                 actions.saveJourneySuccess(journey)
             } catch (error) {

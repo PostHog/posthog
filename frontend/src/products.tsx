@@ -365,6 +365,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/user-journeys/new': ['UserJourneyEdit', 'userJourneyNew'],
     '/user-journeys/:id': ['UserJourney', 'userJourney'],
     '/user-journeys/:id/edit': ['UserJourneyEdit', 'userJourneyEdit'],
+    '/user-journeys/:id/runs/:runId': ['UserJourneyRun', 'userJourneyRun'],
     '/visual-review': ['VisualReviewIndex', 'visualReviewIndex'],
     '/visual-review/settings': ['VisualReviewSettings', 'visualReviewSettings'],
     '/visual-review/repos/:repoOwner/:repoName/runs': ['VisualReviewRuns', 'visualReviewRepoRuns'],
@@ -1371,6 +1372,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'insight/paths',
     },
     UserJourney: { name: 'User journey', projectBased: true, iconType: 'insight/paths' },
+    UserJourneyRun: { name: 'User journey run', projectBased: true, iconType: 'insight/paths' },
     UserJourneyEdit: { name: 'Edit user journey', projectBased: true, iconType: 'insight/paths' },
     VisualReviewIndex: {
         name: 'Visual review',
@@ -2162,6 +2164,7 @@ export const productUrls = {
         }).url,
     userJourney: (id: string): string => `/user-journeys/${id}`,
     userJourneyEdit: (id: string): string => `/user-journeys/${id}/edit`,
+    userJourneyRun: (id: string, runId: string): string => `/user-journeys/${id}/runs/${runId}`,
     visualReviewRuns: (): string => '/visual-review',
     visualReviewSettings: (): string => '/visual-review/settings',
     visualReviewRun: (runId: string): string => `/visual-review/runs/${runId}`,
@@ -3579,7 +3582,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.USER_JOURNEYS,
         tags: ['alpha'],
         sceneKey: 'UserJourneys',
-        sceneKeys: ['UserJourneys', 'UserJourney', 'UserJourneyEdit'],
+        sceneKeys: ['UserJourneys', 'UserJourney', 'UserJourneyRun', 'UserJourneyEdit'],
     },
     {
         path: 'Visual review',

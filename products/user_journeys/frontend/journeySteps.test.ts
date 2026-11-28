@@ -153,6 +153,17 @@ describe('journeySteps', () => {
                 (draft) => (draft.conversion_window_minutes = undefined),
                 { conversion_window_minutes: 'Enter a whole number of minutes from 1 to 1440.' },
             ],
+            ['a full start URL', (draft) => (draft.start_url = 'https://example.com/pricing'), {}],
+            [
+                'a start URL without a scheme',
+                (draft) => (draft.start_url = 'example.com/pricing'),
+                { start_url: 'Enter a full URL, starting with http:// or https://.' },
+            ],
+            [
+                'a start URL with credentials',
+                (draft) => (draft.start_url = 'https://me:secret@example.com/'),
+                { start_url: 'Remove the user name and password from the URL.' },
+            ],
         ])('reports %s', (_, change, expected) => {
             const draft = validDraft()
             change(draft)

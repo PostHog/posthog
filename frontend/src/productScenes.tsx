@@ -212,6 +212,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
         import('../../products/uptime_monitoring/frontend/scenes/UptimeMonitoringScene/UptimeMonitoringScene'),
     UserJourneys: () => import('../../products/user_journeys/frontend/scenes/UserJourneysScene/UserJourneysScene'),
     UserJourney: () => import('../../products/user_journeys/frontend/scenes/UserJourneyScene/UserJourneyScene'),
+    UserJourneyRun: () =>
+        import('../../products/user_journeys/frontend/scenes/UserJourneyRunScene/UserJourneyRunScene'),
     UserJourneyEdit: () =>
         import('../../products/user_journeys/frontend/scenes/UserJourneyEditScene/UserJourneyEditScene'),
     VisualReviewIndex: () => import('../../products/visual_review/frontend/scenes/VisualReviewIndexScene'),

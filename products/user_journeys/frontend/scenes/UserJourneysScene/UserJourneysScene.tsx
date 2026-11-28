@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 
 import { IconEllipsis, IconPlus } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { NotFound } from 'lib/components/NotFound'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
@@ -16,6 +16,7 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { JourneyRunStatusTag } from '../../components/JourneyRunStatusTag'
 import type { JourneyApi } from '../../generated/api.schemas'
 import { userJourneysLogic } from '../../userJourneysLogic'
 
@@ -107,6 +108,32 @@ export function UserJourneysScene(): JSX.Element {
                                 />
                             ),
                             sorter: (a, b) => a.name.localeCompare(b.name),
+                        },
+                        {
+                            title: 'Latest run',
+                            key: 'latest_run',
+                            render: (_, journey) =>
+                                journey.latest_run ? (
+                                    <Link
+                                        to={urls.userJourneyRun(journey.id, journey.latest_run.id)}
+                                        className="flex items-center gap-2 flex-wrap"
+                                        data-attr="user-journeys-latest-run"
+                                    >
+                                        <JourneyRunStatusTag status={journey.latest_run.status} />
+                                        {journey.latest_run.status === 'failed' &&
+                                        journey.latest_run.failed_step_index != null ? (
+                                            <span className="text-xs text-danger">
+                                                at step {journey.latest_run.failed_step_index + 1}
+                                            </span>
+                                        ) : null}
+                                        <TZLabel
+                                            time={journey.latest_run.finished_at ?? journey.latest_run.created_at}
+                                            className="text-secondary text-xs"
+                                        />
+                                    </Link>
+                                ) : (
+                                    <span className="text-secondary">Never run</span>
+                                ),
                         },
                         {
                             title: 'Steps',

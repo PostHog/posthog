@@ -19,6 +19,7 @@ import {
     userJourneysCreateBodyStepsMax,
     userJourneysCreateBodyStepsMin,
 } from './generated/api.zod'
+import { runUrlError } from './journeyRuns'
 
 export const MIN_STEPS = userJourneysCreateBodyStepsMin
 export const MAX_STEPS = userJourneysCreateBodyStepsMax
@@ -72,6 +73,8 @@ export interface JourneyDraft {
     conversion_window_minutes: number | undefined
     steps: JourneyStepDraft[]
     source: JourneySourceEnumApi
+    /** Where a run opens the browser. Empty when the first step names the page. */
+    start_url: string
 }
 
 /** Errors keyed by field path: `name`, `steps`, or `steps.<index>.<field>` for one field of one step. */
@@ -101,6 +104,7 @@ export function emptyDraft(): JourneyDraft {
         conversion_window_minutes: DEFAULT_CONVERSION_WINDOW_MINUTES,
         steps: [emptyStep('pageview'), emptyStep('element_click')],
         source: 'manual',
+        start_url: '',
     }
 }
 
@@ -125,6 +129,7 @@ export function journeyToDraft(journey: JourneyApi): JourneyDraft {
         conversion_window_minutes: journey.conversion_window_minutes,
         steps: journey.steps.map(stepToDraft),
         source: journey.source,
+        start_url: journey.start_url ?? '',
     }
 }
 
@@ -151,6 +156,7 @@ export function draftToPayload(draft: JourneyDraft): CreateJourneyInputApi {
         conversion_window_minutes: draft.conversion_window_minutes,
         steps: draft.steps.map(draftToStep),
         source: draft.source,
+        start_url: draft.start_url.trim() || null,
     }
 }
 
@@ -208,6 +214,16 @@ export function validateDraft(draft: JourneyDraft): JourneyFormErrors {
         errors.conversion_window_minutes = `Enter a whole number of minutes from ${MIN_CONVERSION_WINDOW_MINUTES} to ${MAX_CONVERSION_WINDOW_MINUTES}.`
     }
 
+    const startUrl = draft.start_url.trim()
+    if (startUrl.length > MAX_URL_LENGTH) {
+        errors.start_url = `Use at most ${MAX_URL_LENGTH} characters.`
+    } else if (startUrl) {
+        const error = runUrlError(startUrl)
+        if (error) {
+            errors.start_url = error
+        }
+    }
+
     if (draft.steps.length < MIN_STEPS) {
         errors.steps = `Add at least ${MIN_STEPS} steps.`
     } else if (draft.steps.length > MAX_STEPS) {
@@ -252,7 +268,7 @@ export function serverErrorKey(attr: string | null | undefined): string | null {
         }
         return 'steps'
     }
-    return ['name', 'description', 'conversion_window_minutes'].includes(parts[0]) ? parts[0] : null
+    return ['name', 'description', 'conversion_window_minutes', 'start_url'].includes(parts[0]) ? parts[0] : null
 }
 
 function asString(value: unknown): string | null {

@@ -24,6 +24,12 @@ export const manifest: ProductManifest = {
             projectBased: true,
             iconType: 'insight/paths',
         },
+        UserJourneyRun: {
+            name: 'User journey run',
+            import: () => import('./frontend/scenes/UserJourneyRunScene/UserJourneyRunScene'),
+            projectBased: true,
+            iconType: 'insight/paths',
+        },
         UserJourneyEdit: {
             name: 'Edit user journey',
             import: () => import('./frontend/scenes/UserJourneyEditScene/UserJourneyEditScene'),
@@ -37,6 +43,7 @@ export const manifest: ProductManifest = {
         '/user-journeys/new': ['UserJourneyEdit', 'userJourneyNew'],
         '/user-journeys/:id': ['UserJourney', 'userJourney'],
         '/user-journeys/:id/edit': ['UserJourneyEdit', 'userJourneyEdit'],
+        '/user-journeys/:id/runs/:runId': ['UserJourneyRun', 'userJourneyRun'],
     },
     redirects: {},
     urls: {
@@ -60,6 +67,7 @@ export const manifest: ProductManifest = {
             }).url,
         userJourney: (id: string): string => `/user-journeys/${id}`,
         userJourneyEdit: (id: string): string => `/user-journeys/${id}/edit`,
+        userJourneyRun: (id: string, runId: string): string => `/user-journeys/${id}/runs/${runId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

@@ -6,38 +6,48 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
+import {
+    FAILED_RUN,
+    FAILED_RUN_DETAIL,
+    PASSED_WITH_CHANGE_RUN,
+    PASSED_WITH_CHANGE_RUN_DETAIL,
+    RUNNING_RUN,
+    RUNNING_RUN_DETAIL,
+    RUNS_PAGE,
+    RUN_JOURNEY_ID,
+    RUN_JOURNEY_STEPS,
+} from '../../__mocks__/journeyRuns'
 import type { JourneyApi, JourneyFunnelQueryApi } from '../../generated/api.schemas'
 
 const SIGNUP_JOURNEY: JourneyApi = {
-    id: '0193f1a2-0000-7000-8000-000000000001',
+    id: RUN_JOURNEY_ID,
     team_id: 997,
     name: 'Sign up from pricing',
     description: 'Visitors who compare plans and start a trial.',
-    steps: [
-        { type: 'pageview', url: 'https://example.com/pricing', url_matching: 'exact' },
-        {
-            type: 'element_click',
-            selector: 'button.start-trial',
-            text: 'Start free trial',
-            href: null,
-            url: 'https://example.com/pricing',
-            url_matching: 'exact',
-        },
-        { type: 'pageview', url: '/signup', url_matching: 'contains' },
-        {
-            type: 'element_click',
-            selector: 'form#signup button[type="submit"]',
-            text: 'Create account',
-            href: null,
-            url: null,
-            url_matching: 'exact',
-        },
-    ],
+    steps: RUN_JOURNEY_STEPS,
     conversion_window_minutes: 30,
     source: 'toolbar',
     created_by_id: 1,
     created_at: '2026-11-12T09:30:00Z',
     updated_at: '2026-11-18T14:05:00Z',
+    start_url: null,
+    latest_run: {
+        id: FAILED_RUN.id,
+        status: 'failed',
+        created_at: FAILED_RUN.created_at,
+        finished_at: FAILED_RUN.finished_at,
+        failed_step_index: 1,
+    },
+}
+
+// The first step only contains a URL, so a run has no page to open.
+const UNRUNNABLE_JOURNEY: JourneyApi = {
+    ...SIGNUP_JOURNEY,
+    id: '0193f1a2-0000-7000-8000-000000000009',
+    name: 'Upgrade from settings',
+    description: '',
+    steps: [{ type: 'pageview', url: '/settings/billing', url_matching: 'contains' }, RUN_JOURNEY_STEPS[3]],
+    latest_run: null,
 }
 
 const JOURNEYS: JourneyApi[] = [
@@ -64,6 +74,14 @@ const JOURNEYS: JourneyApi[] = [
         created_by_id: 1,
         created_at: '2026-10-02T11:00:00Z',
         updated_at: '2026-10-02T11:00:00Z',
+        start_url: 'https://shop.example.com/cart',
+        latest_run: {
+            id: PASSED_WITH_CHANGE_RUN.id,
+            status: 'passed',
+            created_at: PASSED_WITH_CHANGE_RUN.created_at,
+            finished_at: PASSED_WITH_CHANGE_RUN.finished_at,
+            failed_step_index: null,
+        },
     },
     {
         id: '0193f1a2-0000-7000-8000-000000000003',
@@ -86,6 +104,8 @@ const JOURNEYS: JourneyApi[] = [
         created_by_id: 1,
         created_at: '2026-09-21T16:45:00Z',
         updated_at: '2026-11-01T08:20:00Z',
+        start_url: null,
+        latest_run: null,
     },
 ]
 
@@ -103,11 +123,11 @@ const SIGNUP_FUNNEL_QUERY: JourneyFunnelQueryApi = {
             },
             {
                 kind: 'EventsNode',
-                custom_name: 'Click on "Start free trial"',
+                custom_name: 'Click on "Sign up"',
                 event: '$autocapture',
                 properties: [
-                    { key: 'selector', type: 'element', operator: 'exact', value: 'button.start-trial' },
-                    { key: 'text', type: 'element', operator: 'exact', value: 'Start free trial' },
+                    { key: 'selector', type: 'element', operator: 'exact', value: 'header a.signup' },
+                    { key: 'text', type: 'element', operator: 'exact', value: 'Sign up' },
                 ],
             },
             {
@@ -169,7 +189,7 @@ function funnelStep(
 const SIGNUP_FUNNEL_RESULT = {
     result: [
         funnelStep('$pageview', 'Pageview of https://example.com/pricing', 0, 4210, 4210),
-        funnelStep('$autocapture', 'Click on "Start free trial"', 1, 1630, 4210),
+        funnelStep('$autocapture', 'Click on "Sign up"', 1, 1630, 4210),
         funnelStep('$pageview', 'Pageview of /signup', 2, 1388, 1630),
         funnelStep('$autocapture', 'Click on "Create account"', 3, 902, 1388),
     ],
@@ -199,6 +219,13 @@ const meta: Meta = {
                 '/api/projects/:team_id/user_journeys/': { count: JOURNEYS.length, results: JOURNEYS },
                 [`/api/projects/:team_id/user_journeys/${SIGNUP_JOURNEY.id}/`]: SIGNUP_JOURNEY,
                 [`/api/projects/:team_id/user_journeys/${SIGNUP_JOURNEY.id}/funnel_query/`]: SIGNUP_FUNNEL_QUERY,
+                [`/api/projects/:team_id/user_journeys/${UNRUNNABLE_JOURNEY.id}/`]: UNRUNNABLE_JOURNEY,
+                [`/api/projects/:team_id/user_journeys/${UNRUNNABLE_JOURNEY.id}/funnel_query/`]: SIGNUP_FUNNEL_QUERY,
+                '/api/projects/:team_id/user_journeys/:journey_id/runs/': RUNS_PAGE,
+                [`/api/projects/:team_id/user_journeys/:journey_id/runs/${FAILED_RUN.id}/`]: FAILED_RUN_DETAIL,
+                [`/api/projects/:team_id/user_journeys/:journey_id/runs/${PASSED_WITH_CHANGE_RUN.id}/`]:
+                    PASSED_WITH_CHANGE_RUN_DETAIL,
+                [`/api/projects/:team_id/user_journeys/:journey_id/runs/${RUNNING_RUN.id}/`]: RUNNING_RUN_DETAIL,
             },
             post: {
                 '/api/projects/:team_id/file_system/home_folder/': { id: 'example-home', path: 'Users/Example' },
@@ -241,6 +268,47 @@ export const NewJourneyFromToolbar: Story = {
 export const JourneyDetail: Story = {
     parameters: {
         pageUrl: urls.userJourney(SIGNUP_JOURNEY.id),
-        testOptions: { waitForSelector: '.FunnelInsight', snapshotBrowsers: [] },
+        testOptions: { waitForSelector: '[data-attr="user-journey-runs-table"] tbody tr', snapshotBrowsers: [] },
+    },
+}
+
+export const JourneyDetailNeverRun: Story = {
+    decorators: [
+        mswDecorator({ get: { '/api/projects/:team_id/user_journeys/:journey_id/runs/': { count: 0, results: [] } } }),
+    ],
+    parameters: {
+        pageUrl: urls.userJourney(SIGNUP_JOURNEY.id),
+        testOptions: { waitForSelector: '[data-attr="user-journey-runs-empty"]', snapshotBrowsers: [] },
+    },
+}
+
+export const JourneyDetailWithoutStartPage: Story = {
+    decorators: [
+        mswDecorator({ get: { '/api/projects/:team_id/user_journeys/:journey_id/runs/': { count: 0, results: [] } } }),
+    ],
+    parameters: {
+        pageUrl: urls.userJourney(UNRUNNABLE_JOURNEY.id),
+        testOptions: { waitForSelector: '[data-attr="user-journey-runs-edit"]', snapshotBrowsers: [] },
+    },
+}
+
+export const JourneyRunFailed: Story = {
+    parameters: {
+        pageUrl: urls.userJourneyRun(SIGNUP_JOURNEY.id, FAILED_RUN.id),
+        testOptions: { waitForSelector: '[data-attr="user-journey-run-steps"] img', snapshotBrowsers: [] },
+    },
+}
+
+export const JourneyRunPassedWithVisualChange: Story = {
+    parameters: {
+        pageUrl: urls.userJourneyRun(SIGNUP_JOURNEY.id, PASSED_WITH_CHANGE_RUN.id),
+        testOptions: { waitForSelector: '[data-attr="user-journey-run-steps"] img', snapshotBrowsers: [] },
+    },
+}
+
+export const JourneyRunInProgress: Story = {
+    parameters: {
+        pageUrl: urls.userJourneyRun(SIGNUP_JOURNEY.id, RUNNING_RUN.id),
+        testOptions: { waitForSelector: '[data-attr="user-journey-run-header"]', snapshotBrowsers: [] },
     },
 }

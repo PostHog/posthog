@@ -21,6 +21,7 @@ const CREATED: JourneyApi = {
     created_by_id: 1,
     created_at: '2026-11-20T00:00:00Z',
     updated_at: '2026-11-20T00:00:00Z',
+    latest_run: null,
 }
 
 describe('userJourneyFormLogic', () => {
@@ -73,6 +74,7 @@ describe('userJourneyFormLogic', () => {
             description: '',
             conversion_window_minutes: 30,
             source: 'toolbar',
+            start_url: null,
             steps: [
                 { type: 'pageview', url: 'https://example.com/pricing', url_matching: 'contains' },
                 {
@@ -100,6 +102,36 @@ describe('userJourneyFormLogic', () => {
             'steps.0.url': 'Enter the page URL.',
             'steps.1.selector': 'Enter a CSS selector for the element.',
         })
+    })
+
+    it('clears a stored start URL by sending an empty string, because null keeps it', async () => {
+        let patchBody: Record<string, unknown> | null = null
+        const stored: JourneyApi = {
+            ...CREATED,
+            steps: [
+                { type: 'pageview', url: '/pricing', url_matching: 'contains' },
+                { type: 'element_click', selector: 'button.signup' },
+            ],
+            start_url: 'https://example.com/pricing',
+        }
+        useMocks({
+            get: { '/api/projects/:team_id/user_journeys/:id/': stored },
+            patch: {
+                '/api/projects/:team_id/user_journeys/:id/': async ({ request }) => {
+                    patchBody = (await request.json()) as Record<string, unknown>
+                    return [200, { ...stored, start_url: null }]
+                },
+            },
+        })
+        logic = userJourneyFormLogic({ id: CREATED.id })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadJourneySuccess'])
+        expect(logic.values.draft.start_url).toBe('https://example.com/pricing')
+
+        logic.actions.setStartUrl('  ')
+        await expectLogic(logic, () => logic.actions.submit()).toDispatchActions(['saveJourneySuccess'])
+
+        expect(patchBody).toMatchObject({ start_url: '' })
     })
 
     it('shows a server validation error on the step field it names', async () => {
