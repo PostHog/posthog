@@ -1,4 +1,4 @@
-import { act, fireEvent, render, RenderResult } from '@testing-library/react'
+import { act, fireEvent, render, RenderResult, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -503,5 +503,36 @@ describe('AdventFlowStage', () => {
                 edge.getAttribute('data-edge')
             )
         ).toEqual(['trigger>door-1'])
+    })
+
+    const exitNote = { caption: 'Raffle draw', body: 'Drawn after the 24th.' }
+
+    it.each([
+        ['without a note', { width: 1200, height: 830 }, undefined, ['December 25'], false],
+        ['with a note', { width: 1200, height: 830 }, exitNote, ['Raffle draw'], true],
+        [
+            'with a note in the phone column',
+            { width: 375, height: 700 },
+            exitNote,
+            ['Raffle draw', 'Drawn after the 24th.'],
+            false,
+        ],
+    ])('captions the exit %s', (_, size, note, lines, isButton) => {
+        renderStage(size, { exitNote: note })
+        const exit = document.querySelector('[data-attr="advent-exit"]')
+
+        expect([
+            lines.map((line) => !!screen.queryByText(line)),
+            exit instanceof HTMLButtonElement,
+            !!exit && screen.queryByLabelText(/^Exit\s*Raffle draw$/) === exit,
+        ]).toEqual([lines.map(() => true), isButton, isButton])
+    })
+
+    it('opens the exit note on a click', () => {
+        renderStage({ width: 1200, height: 830 }, { exitNote })
+
+        act(() => fireEvent.click(document.querySelector('[data-attr="advent-exit"]') as HTMLElement))
+
+        expect(document.body.textContent).toContain('Drawn after the 24th.')
     })
 })

@@ -1,8 +1,9 @@
 import './AdventFlowStage.scss'
 
-import { CSSProperties, memo } from 'react'
+import { CSSProperties, memo, ReactNode } from 'react'
 
 import { IconCalendar, IconLeave } from '@posthog/icons'
+import { Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { cn } from 'lib/utils/css-classes'
 
@@ -21,6 +22,13 @@ export interface AdventFlowStepProps {
     onActivate: (doorId: string) => void
     onEnter: (doorId: string) => void
     onLeave: () => void
+    face?: ReactNode
+    exitNote?: AdventFlowExitNote
+}
+
+export interface AdventFlowExitNote {
+    caption: string
+    body: ReactNode
 }
 
 interface Caption {
@@ -39,13 +47,13 @@ function doorCaption(door: AdventDoor, today: number): Caption {
     return { title: topic, detail: null }
 }
 
-function captionOf(node: AdventFlowNode, today: number): Caption {
+function captionOf(node: AdventFlowNode, today: number, exitNote?: AdventFlowExitNote): Caption {
     if (node.door) {
         return doorCaption(node.door, today)
     }
     return node.kind === 'trigger'
         ? { title: 'Every day in December', detail: 'One door a day' }
-        : { title: 'Exit', detail: 'December 25' }
+        : { title: 'Exit', detail: exitNote?.caption ?? 'December 25' }
 }
 
 function doorName(door: AdventDoor): string {
@@ -68,18 +76,48 @@ function captionAlign(orientation: AdventFlowOrientation, node: AdventFlowNode):
     return node.lane === 'upper' ? 'items-center justify-end text-center' : 'items-center justify-start text-center'
 }
 
-function EndTile({ node, orientation }: Pick<AdventFlowStepProps, 'node' | 'orientation'>): JSX.Element {
-    const isExit = node.kind === 'exit'
+const endTileClass = (orientation: AdventFlowOrientation, isExit: boolean): string =>
+    cn(
+        'AdventFlowStep__tile AdventFlowStep__end absolute flex items-center justify-center rounded-xl border-2',
+        `AdventFlowStep__end--${orientation}`,
+        isExit ? 'AdventFlowStep__end--exit' : 'AdventFlowStep__end--trigger'
+    )
+
+function ExitTile({
+    node,
+    orientation,
+    note,
+}: Pick<AdventFlowStepProps, 'node' | 'orientation'> & { note: AdventFlowExitNote }): JSX.Element {
     return (
-        <div
-            className={cn(
-                'AdventFlowStep__tile AdventFlowStep__end absolute flex items-center justify-center rounded-xl border-2',
-                `AdventFlowStep__end--${orientation}`,
-                isExit ? 'AdventFlowStep__end--exit' : 'AdventFlowStep__end--trigger'
-            )}
-            style={at(node.tile)}
-            aria-describedby={captionId(node)}
-        >
+        <Popover>
+            <PopoverTrigger
+                openOnHover
+                delay={0}
+                className={cn(endTileClass(orientation, true), 'p-0')}
+                style={at(node.tile)}
+                aria-labelledby={captionId(node)}
+                data-attr="advent-exit"
+            >
+                <IconLeave />
+            </PopoverTrigger>
+            <PopoverContent className="AdventFlowStep__exitNote" side="top">
+                {note.body}
+            </PopoverContent>
+        </Popover>
+    )
+}
+
+function EndTile({
+    node,
+    orientation,
+    exitNote,
+}: Pick<AdventFlowStepProps, 'node' | 'orientation' | 'exitNote'>): JSX.Element {
+    const isExit = node.kind === 'exit'
+    if (isExit && exitNote && orientation === 'rows') {
+        return <ExitTile node={node} orientation={orientation} note={exitNote} />
+    }
+    return (
+        <div className={endTileClass(orientation, isExit)} style={at(node.tile)} aria-describedby={captionId(node)}>
             {isExit ? <IconLeave /> : <IconCalendar />}
             {!isExit && (
                 <TileBadge placement="setting" color="var(--color-accent)">
@@ -103,7 +141,10 @@ function doorTileClass(door: AdventDoor, today: number, isSelected: boolean): st
 
 const doorBadge = (door: AdventDoor): string => (door.question ? '2 paths' : adventWeekday(door.day).slice(0, 3))
 
-function ClosedDoor({ door }: { door: AdventDoor }): JSX.Element {
+function ClosedDoor({ door, face }: { door: AdventDoor; face?: ReactNode }): JSX.Element {
+    if (face) {
+        return <>{face}</>
+    }
     return (
         <>
             {door.day}
@@ -122,6 +163,7 @@ function DoorTile({
     onActivate,
     onEnter,
     onLeave,
+    face,
 }: AdventFlowStepProps): JSX.Element {
     const door = node.door as AdventDoor
     const color = adventDayColor(door.day)
@@ -138,29 +180,41 @@ function DoorTile({
             onClick={() => onActivate(door.id)}
             {...hover}
         >
-            {isOpen ? <AdventFlowPeek door={door} isOpening={isOpening} /> : <ClosedDoor door={door} />}
+            {isOpen ? <AdventFlowPeek door={door} isOpening={isOpening} /> : <ClosedDoor door={door} face={face} />}
         </button>
     )
 }
 
+const columnNoteAt = (node: AdventFlowNode): CSSProperties => ({
+    left: node.caption.x,
+    top: node.tile.y,
+    width: node.caption.width,
+})
+
 export const AdventFlowStep = memo(function AdventFlowStep(props: AdventFlowStepProps): JSX.Element {
-    const { node, orientation, today } = props
-    const { title, detail } = captionOf(node, today)
+    const { node, orientation, today, exitNote } = props
+    const { title, detail } = captionOf(node, today, exitNote)
+    const columnNote = orientation === 'column' && node.kind === 'exit' ? exitNote : undefined
     return (
         <>
-            {node.door ? <DoorTile {...props} /> : <EndTile node={node} orientation={orientation} />}
+            {node.door ? (
+                <DoorTile {...props} />
+            ) : (
+                <EndTile node={node} orientation={orientation} exitNote={exitNote} />
+            )}
             <span
                 id={captionId(node)}
                 className={cn(
                     'AdventFlowStep__caption pointer-events-none absolute flex flex-col leading-tight',
-                    captionAlign(orientation, node)
+                    columnNote ? 'items-start text-left' : captionAlign(orientation, node)
                 )}
-                style={at(node.caption)}
+                style={columnNote ? columnNoteAt(node) : at(node.caption)}
             >
                 {title && (
                     <span className="line-clamp-2 max-w-full text-[12px] font-semibold text-primary">{title}</span>
                 )}
                 {detail && <span className="line-clamp-2 max-w-full text-[11px] text-secondary">{detail}</span>}
+                {columnNote && <span className="AdventFlowStep__columnNote text-secondary">{columnNote.body}</span>}
             </span>
         </>
     )

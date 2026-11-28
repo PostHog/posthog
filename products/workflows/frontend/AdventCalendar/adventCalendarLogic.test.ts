@@ -244,27 +244,84 @@ describe('adventCalendarLogic', () => {
         }
     )
 
-    it.each<[string, Parameters<typeof calendarApi>[0], Date, number, number]>([
+    it.each<[string, Parameters<typeof calendarApi>[0], Date, [number, number] | null, boolean, number, number]>([
         [
             'comes back after an outage past the first retries',
             { open: [500, 500, 500, 500, 200] },
             new Date(2026, 11, 3, 9, 0),
+            null,
+            false,
             1,
             5,
         ],
-        ['stays down until the day is over', { open: 500 }, new Date(2026, 11, 3, 23, 59, 30), 0, 4],
-    ])('retries the open of the day while the server %s', async (_, replies, openedAt, tickets, sends) => {
-        jest.setSystemTime(openedAt)
-        const api = calendarApi(replies)
+        ['stays down until the day is over', { open: 500 }, new Date(2026, 11, 3, 23, 59, 30), null, false, 0, 4],
+        [
+            'stays down until the day is over while a staff member previews another day',
+            { open: 500 },
+            new Date(2026, 11, 3, 23, 59, 30),
+            null,
+            true,
+            0,
+            4,
+        ],
+        [
+            'stays down until the day of the sent offset is over while the browser moves west',
+            { open: 500 },
+            new Date(Date.UTC(2026, 11, 4, 4, 59, 30)),
+            [300, 480],
+            false,
+            0,
+            4,
+        ],
+    ])(
+        'retries the open of the day while the server %s',
+        async (_, replies, openedAt, offsets, previews, tickets, sends) => {
+            jest.setSystemTime(openedAt)
+            const zone = offsets && jest.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(offsets[0])
+            const api = calendarApi(replies)
+            useMocks(api.mocks)
+            await remount()
+
+            openThroughDoorThree()
+            if (offsets) {
+                zone?.mockReturnValue(offsets[1])
+            }
+            if (previews) {
+                signIn({ is_staff: true })
+                router.actions.push('/workflows/advent', { day: '4' })
+            }
+            await jest.advanceTimersByTimeAsync(120_000)
+            zone?.mockRestore()
+
+            expect({ tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }).toEqual({
+                tickets,
+                sends,
+            })
+        }
+    )
+
+    it('sends no open at load for the last door opened after its day', async () => {
+        jest.setSystemTime(new Date(2026, 11, 26, 9, 0))
+        window.localStorage.setItem(
+            KEY,
+            JSON.stringify({
+                [UUID]: {
+                    opened: Array.from({ length: 24 }, (_, index) => index + 1),
+                    answers: Object.fromEntries(
+                        Object.entries(ADVENT_QUESTIONS).map(([day, question]) => [day, question.options[0].id])
+                    ),
+                },
+            })
+        )
+        const api = calendarApi({ ticketDays: [1, 2] })
         useMocks(api.mocks)
+
+        await remount()
         await remount()
 
-        openThroughDoorThree()
-        await jest.advanceTimersByTimeAsync(120_000)
-
-        expect({ tickets: logic.values.tickets, sends: api.opens.filter(({ day }) => day === 3).length }).toEqual({
-            tickets,
-            sends,
+        expect({ doorTwentyFour: doorOf(logic, 'door-24')?.status, opens: api.opens }).toEqual({
+            doorTwentyFour: 'open',
+            opens: [],
         })
     })
 

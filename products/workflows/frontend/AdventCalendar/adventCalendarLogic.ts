@@ -174,7 +174,9 @@ export interface adventCalendarLogicValues {
     serverTicketDays: number[] | null
     snowPuffs: AdventSnowPuff[]
     ticketDays: number[]
+    ticketFlight: number | null
     tickets: number | null
+    ticketsShown: number | null
     today: number
 }
 
@@ -216,6 +218,9 @@ export interface adventCalendarLogicActions {
         day: number
     }
     finishReveal: () => {
+        value: true
+    }
+    landTicket: () => {
         value: true
     }
     loadPollResults: () => {
@@ -308,6 +313,7 @@ export interface adventCalendarLogicMeta {
             isLive: boolean
         ) => number[]
         tickets: (ticketDays: number[], serverTicketDays: number[] | null, isLive: boolean) => number | null
+        ticketsShown: (tickets: number | null, ticketDays: number[], ticketFlight: number | null) => number | null
         selectedDoor: (graph: AdventGraph, selectedDoorId: string | null) => AdventDoor | null
         revealingDoor: (graph: AdventGraph, revealingDoorId: string | null) => AdventDoor | null
     }
@@ -349,6 +355,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
         }),
         receiveOpen: (day: number, ticketDays: number[] | undefined) => ({ day, ticketDays }),
         dropOpen: (day: number) => ({ day }),
+        landTicket: true,
         refreshClock: () => {
             const now = new Date()
             return { localDate: new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() }
@@ -451,6 +458,16 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 clearSnowPuffs: () => [],
             },
         ],
+        ticketFlight: [
+            null as number | null,
+            {
+                openDoor: (state, { day, isLive, isOnTime }) => (isOnTime || !isLive ? day : state),
+                receiveOpen: (state, { day, ticketDays }) =>
+                    state === day && !ticketDays?.includes(day) ? null : state,
+                dropOpen: (state, { day }) => (state === day ? null : state),
+                landTicket: () => null,
+            },
+        ],
     }),
     selectors({
         pollResults: [
@@ -537,6 +554,17 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 isLive: adventCalendarLogicValues['isLive']
             ): number | null => (isLive && serverTicketDays === null ? null : ticketDays.length),
         ],
+        ticketsShown: [
+            (s) => [s.tickets, s.ticketDays, s.ticketFlight],
+            (
+                tickets: adventCalendarLogicValues['tickets'],
+                ticketDays: adventCalendarLogicValues['ticketDays'],
+                ticketFlight: number | null
+            ): number | null =>
+                tickets === null
+                    ? null
+                    : tickets - (ticketFlight !== null && ticketDays.includes(ticketFlight) ? 1 : 0),
+        ],
         selectedDoor: [
             (s) => [s.graph, s.selectedDoorId],
             (
@@ -612,7 +640,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                                 const timer = window.setTimeout(
                                     () => {
                                         mount.dispose(`open-${day}`)
-                                        if (isOnTime(day)) {
+                                        if (adventOpenedOnItsDay(day, new Date(), utcOffsetMinutes)) {
                                             sendOpen(day, utcOffsetMinutes, userUuid, retry + 1)
                                         } else {
                                             actions.dropOpen(day)
@@ -628,6 +656,10 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                     }
                 )
         }
+        const isOnTime = (day: number): boolean => {
+            const now = new Date()
+            return adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
+        }
         const recoverToday = (): void => {
             const day = values.today
             const ticketDays = values.serverTicketDays
@@ -635,13 +667,14 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
                 return
             }
             cache.checkedToday = true
-            if (values.progress.opened.includes(day) && !ticketDays.includes(day) && values.sendingTicketDay !== day) {
+            if (
+                values.progress.opened.includes(day) &&
+                !ticketDays.includes(day) &&
+                values.sendingTicketDay !== day &&
+                isOnTime(day)
+            ) {
                 sendOpen(day, -new Date().getTimezoneOffset(), values.user.uuid)
             }
-        }
-        const isOnTime = (day: number): boolean => {
-            const now = new Date()
-            return !values.isLive || adventOpenedOnItsDay(day, now, -now.getTimezoneOffset())
         }
         return {
             loadPollResults: () => receive(api.workflowAdventCalendarResults(String(values.currentProjectId))),
