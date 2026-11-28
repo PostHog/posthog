@@ -333,7 +333,7 @@ class TestDeliveryDispatch(SimpleTestCase):
     @parameterized.expand(
         [
             ("outage", ConnectionError("slack unreachable"), "ConnectionError", "failed"),
-            ("misconfigured", DestinationMisconfigured("not_in_channel"), "not_in_channel", "misconfigured"),
+            ("misconfigured", DestinationMisconfigured("not_in_channel", remedy=""), "not_in_channel", "misconfigured"),
         ]
     )
     def test_a_failed_send_is_counted_by_whose_fix_it_is(

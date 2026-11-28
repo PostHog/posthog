@@ -231,14 +231,7 @@ def _send(
             succeeded=False,
             error=str(error) if isinstance(error, DeliveryError) else type(error).__name__,
         )
-        outcome: DeliveryOutcomeLabel
-        if _recorded_as_delivered(error, transport.provider):
-            outcome = "ambiguous"
-        elif isinstance(error, DestinationMisconfigured):
-            outcome = "misconfigured"
-        else:
-            outcome = "failed"
-        safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, outcome)
+        count_failed_send(message.source.value, transport.provider, error)
         if isinstance(error, DestinationRefused):
             notify_refused(
                 team_id=team_id,
@@ -259,6 +252,17 @@ def _send(
     safe_record(increment_deliveries, message.source.value, transport.provider, DeliveryPath.NATIVE.value, "sent")
     safe_record(record_delivery_lag, message.source.value, transport.provider, _lag_ms(message.transition))
     return sent
+
+
+def count_failed_send(source: str, provider: str, error: Exception) -> None:
+    outcome: DeliveryOutcomeLabel
+    if _recorded_as_delivered(error, provider):
+        outcome = "ambiguous"
+    elif isinstance(error, DestinationMisconfigured):
+        outcome = "misconfigured"
+    else:
+        outcome = "failed"
+    safe_record(increment_deliveries, source, provider, DeliveryPath.NATIVE.value, outcome)
 
 
 def _lag_ms(transition: AnnouncedTransition) -> int:

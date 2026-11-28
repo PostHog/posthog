@@ -217,8 +217,9 @@ _MISCONFIGURED_ERRORS: Final = {
 }
 
 
-def _slack_refusal(code: Any, refused: str) -> DeliveryError:
+def _slack_refusal(error: SlackApiError, refused: str) -> DeliveryError:
     """The code stays in the text, so a refusal can be searched for in the worker's logs."""
+    code = error.response.get("error")
     misconfigured = _MISCONFIGURED_ERRORS.get(code)
     if misconfigured is None:
         return DeliveryError(f"Slack refused the {refused}: {code}")
@@ -338,7 +339,7 @@ class SlackTransport:
                 content = _without_image_content(content)
                 response = post(content)
         except SlackApiError as error:
-            raise _slack_refusal(error.response.get("error"), "message") from error
+            raise _slack_refusal(error, "message") from error
         except (OSError, HTTPException) as error:
             if not _maybe_posted(error):
                 raise
@@ -457,7 +458,7 @@ class SlackTransport:
                     raise
                 update(_without_image_content(content))
         except SlackApiError as error:
-            raise _slack_refusal(error.response.get("error"), "edit") from error
+            raise _slack_refusal(error, "edit") from error
 
     def _integration(self, *, team_id: int, workspace_id: int) -> IntegrationRecord:
         # Scoped by team as well as by id. The destination names an integration, and nothing

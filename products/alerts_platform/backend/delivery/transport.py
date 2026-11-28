@@ -47,6 +47,10 @@ class DestinationMisconfigured(DeliveryError):
     The platform did its part, so its own reliability metrics count this apart from a failure.
     """
 
+    def __init__(self, problem: str, *, remedy: str) -> None:
+        super().__init__(problem)
+        self.remedy = remedy
+
 
 # What an HTTP destination's owner checks. A provider whose fix lies elsewhere names its own.
 CHECK_THE_URL = "Check the destination's URL and the format it accepts, then update the destination on the alert."
@@ -62,8 +66,7 @@ class DestinationRefused(DestinationMisconfigured):
     """
 
     def __init__(self, refusal: str, *, remedy: str = CHECK_THE_URL) -> None:
-        super().__init__(refusal)
-        self.remedy = remedy
+        super().__init__(refusal, remedy=remedy)
 
 
 class RefusedEverywhere(DeliveryError):
