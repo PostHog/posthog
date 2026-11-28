@@ -14,7 +14,6 @@ from unittest.mock import MagicMock, patch
 from django.test import override_settings
 
 import requests
-from requests_oauthlib import OAuth1
 
 from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
 from products.warehouse_sources.sources.sdk.testing import (
@@ -70,33 +69,33 @@ def request_url(request: requests.PreparedRequest) -> str:
 
 
 @pytest.mark.parametrize("table", ["campaigns", "promoted_accounts"])
-def test_signing_pagination_and_resume(client: TwitterAdsClient, manager: MagicMock, table: str) -> None:
-    with patch.object(
-        client.session,
-        "send",
-        side_effect=[
-            response({"data": [{"id": "one"}], "next_cursor": "next-page"}),
-            response({"data": [{"id": "two", "deleted": True}], "next_cursor": None}),
-        ],
-    ) as send:
-        resource = twitter_ads_source(client, "account", table, manager, None, MagicMock())
-        assert list(sync_items(resource)) == [[{"id": "one"}], [{"id": "two", "deleted": True}]]
-    requests_sent = [call.args[0] for call in send.call_args_list]
-    assert isinstance(client.session.auth, OAuth1)
-    assert all(b"oauth_signature=" in request.headers["Authorization"] for request in requests_sent)
-    assert all(urlparse(request_url(request)).path == f"/12/accounts/account/{table}" for request in requests_sent)
-    assert all(parse_qs(urlparse(request_url(request)).query)["with_deleted"] == ["true"] for request in requests_sent)
-    assert parse_qs(urlparse(request_url(requests_sent[1])).query)["cursor"] == ["next-page"]
-    assert manager.save_state.call_args_list[0].args[0] == TwitterAdsResumeConfig(cursor="next-page")
-    assert manager.save_state.call_args_list[1].args[0].complete
-    manager.load_state.return_value = TwitterAdsResumeConfig(cursor="saved-page")
-    with patch.object(client.session, "send", return_value=response({"data": [], "next_cursor": None})) as send:
-        list(sync_items(resource))
-    assert parse_qs(urlparse(request_url(send.call_args.args[0])).query)["cursor"] == ["saved-page"]
-    manager.load_state.return_value = TwitterAdsResumeConfig(complete=True)
-    with patch.object(client.session, "send") as send:
-        assert list(sync_items(resource)) == []
-    send.assert_not_called()
+def test_signing_pagination_and_resume(source_driver: SourceDriver, table: str) -> None:
+    first_row = {"id": "one"}
+    last_row = {"id": "two", "deleted": True}
+    first_page = ScriptedResponse(json={"data": [first_row], "next_cursor": "next-page"})
+    last_page = ScriptedResponse(json={"data": [last_row], "next_cursor": None})
+
+    result = source_driver.run(table, [first_page, last_page])
+
+    assert result.raised is None
+    assert result.rows == [first_row, last_row]
+    assert result.paths == [f"/12/accounts/account/{table}"] * 2
+    assert all("oauth_signature=" in request.headers["authorization"] for request in result.requests)
+    assert result.params("with_deleted") == ["true", "true"]
+    assert result.params("cursor") == [None, "next-page"]
+    checkpoint, completed = result.committed_states
+    assert checkpoint == TwitterAdsResumeConfig(cursor="next-page")
+    assert completed == TwitterAdsResumeConfig(complete=True)
+
+    resumed = source_driver.run(table, [last_page], resume_state=checkpoint)
+    assert resumed.raised is None
+    assert resumed.params("cursor") == ["next-page"]
+    assert resumed.rows == [last_row]
+
+    finished = source_driver.run(table, [], resume_state=completed)
+    assert finished.raised is None
+    assert finished.rows == []
+    assert finished.requests == []
 
 
 def test_accounts_sync_imports_only_the_selected_account(source_driver: SourceDriver) -> None:
