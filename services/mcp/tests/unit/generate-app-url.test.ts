@@ -80,10 +80,13 @@ describe('generate-app-url', () => {
         expect(result.url).toBe('https://us.posthog.com/instance/status')
     })
 
-    it('throws on an unknown url template', async () => {
-        await expect(generateAppUrlHandler(ctx, { url: '/definitely/not/a/template', params: {} })).rejects.toThrow(
-            /Unknown url "\/definitely\/not\/a\/template"/
-        )
+    it('rejects an unknown url template as agent input', async () => {
+        await expect(
+            generateAppUrlHandler(ctx, { url: '/definitely/not/a/template', params: {} })
+        ).rejects.toMatchObject({
+            errorType: 'validation',
+            message: expect.stringMatching(/Unknown url "\/definitely\/not\/a\/template"/),
+        })
     })
 
     it('throws when a required param is missing', async () => {

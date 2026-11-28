@@ -413,6 +413,7 @@ describe('handleToolError with API errors', () => {
         { status: 500, statusText: 'Internal Server Error' },
         { status: 502, statusText: 'Bad Gateway' },
         { status: 503, statusText: 'Service Unavailable' },
+        { status: 504, statusText: 'Gateway Timeout' },
     ])(
         'captures $status PostHogApiError as an exception (real service failure)',
         ({ status, statusText }: { status: number; statusText: string }) => {
@@ -430,6 +431,40 @@ describe('handleToolError with API errors', () => {
             expect(result.isError).toBe(true)
         }
     )
+
+    it('returns a query timeout to the agent with its recovery hint without capturing an exception', () => {
+        const error = new PostHogApiError({
+            status: 504,
+            statusText: 'Gateway Timeout',
+            body: JSON.stringify({
+                type: 'server_error',
+                code: 'error',
+                detail: 'Query has hit the max execution time before completing. See our docs for how to improve your query performance. You may need to materialize.',
+                attr: null,
+            }),
+            url: 'https://us.posthog.com/api/projects/2/logs/query/',
+            method: 'POST',
+        })
+
+        const result = handleToolError(wrapError('Failed to query logs', error), 'query-logs')
+
+        expect(captureException).not.toHaveBeenCalled()
+        expect((result.content[0] as { text: string }).text).toContain('Narrow the query and retry')
+    })
+
+    it('tells the agent to rerun, not narrow, a logs query that ran concurrently', () => {
+        const error = new PostHogApiError({
+            status: 503,
+            statusText: 'Service Unavailable',
+            body: JSON.stringify({ type: 'server_error', code: 'query_ran_concurrently', detail: 'Try again.' }),
+            url: 'https://us.posthog.com/api/projects/2/logs/query/',
+            method: 'POST',
+        })
+
+        const result = handleToolError(error, 'query-logs')
+
+        expect((result.content[0] as { text: string }).text).not.toContain('Narrow the query and retry')
+    })
 
     it('short-circuits PostHogValidationError without capturing an exception', () => {
         const error = new PostHogValidationError({

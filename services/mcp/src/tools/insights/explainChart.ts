@@ -1,6 +1,6 @@
 import type { z } from 'zod'
 
-import { wrapError } from '@/lib/errors'
+import { MCPToolResultError, wrapError } from '@/lib/errors'
 import { withUiApp } from '@/resources/ui-apps'
 import { ExplainChartInputSchema } from '@/schema/tool-inputs'
 import { GENERATED_TOOLS } from '@/tools/generated/query-wrappers'
@@ -167,11 +167,11 @@ function asStoryQuery(query: unknown): StoryQuery {
         const funnel = { ...inner } as StoryFunnelsQuery
         const vizType = funnel.funnelsFilter?.funnelVizType
         if (vizType !== undefined && vizType !== null && vizType !== 'steps') {
-            throw new Error(NOT_FUNNEL_STEPS)
+            throw new MCPToolResultError(NOT_FUNNEL_STEPS, 'validation')
         }
         return funnel
     }
-    throw new Error(NOT_SUPPORTED)
+    throw new MCPToolResultError(NOT_SUPPORTED, 'validation')
 }
 
 function pageShowsStory(query: StoryQuery): boolean {
@@ -187,7 +187,7 @@ function asTrendsQuery(inner: object): StoryTrendsQuery {
         return trends
     }
     if (!TOTAL_DISPLAYS.has(display)) {
-        throw new Error(NOT_OVER_TIME)
+        throw new MCPToolResultError(NOT_OVER_TIME, 'validation')
     }
     trends.trendsFilter = { ...trends.trendsFilter, display: 'ActionsLineGraph' }
     return trends
@@ -281,10 +281,11 @@ function trendsChart(
 ): ShownChart {
     const series = results[seriesIndex]
     if (!series?.data?.length) {
-        throw new Error(
+        throw new MCPToolResultError(
             results.length
                 ? `The chart has ${results.length} series, so \`series\` must be below ${results.length}.`
-                : 'The chart has no data to explain.'
+                : 'The chart has no data to explain.',
+            'validation'
         )
     }
     const interval = query.interval ?? 'day'
@@ -317,10 +318,11 @@ function funnelChart(query: StoryFunnelsQuery, results: unknown[], seriesIndex: 
         .filter((group) => group.length > 0)
     const followed = groups[seriesIndex]
     if (!followed) {
-        throw new Error(
+        throw new MCPToolResultError(
             groups.length
                 ? `The funnel has ${groups.length} breakdown values, so \`series\` must be below ${groups.length}.`
-                : 'The funnel has no data to explain.'
+                : 'The funnel has no data to explain.',
+            'validation'
         )
     }
     const steps = followed.map((step, index) => ({

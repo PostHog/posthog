@@ -1,5 +1,6 @@
 import { z } from 'zod'
 
+import { MCPToolResultError } from '@/lib/errors'
 import type { Context, ToolBase } from '@/tools/types'
 
 import appUrlManifest from './app-url-manifest.json'
@@ -72,8 +73,9 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
     const template = toCanonicalTemplate(params.url)
     const scope = SCOPE_BY_TEMPLATE.get(template)
     if (!scope) {
-        throw new Error(
-            `Unknown url "${params.url}". Pick a path template from the catalog in the \`url\` field's description (in exec, run \`${CATALOG_COMMAND}\`).`
+        throw new MCPToolResultError(
+            `Unknown url "${params.url}". Pick a path template from the catalog in the \`url\` field's description (in exec, run \`${CATALOG_COMMAND}\`).`,
+            'validation'
         )
     }
 
@@ -90,7 +92,10 @@ export const generateAppUrlHandler: ToolBase<typeof schema, AppUrlResult>['handl
             issues.push(`unexpected: ${unexpected.join(', ')}`)
         }
         const expected = required.length > 0 ? `[${required.join(', ')}]` : '(none)'
-        throw new Error(`params for "${params.url}" must be exactly ${expected} — ${issues.join('; ')}.`)
+        throw new MCPToolResultError(
+            `params for "${params.url}" must be exactly ${expected} — ${issues.join('; ')}.`,
+            'validation'
+        )
     }
 
     // `project` paths get `${publicBaseUrl}/project/:id`; `global` (org/account/auth) paths get the
