@@ -1041,6 +1041,7 @@ CREDENTIAL_KINDS: Mapping[str, str] = {
     "Quay": "quay",
     "QuickBooks": "quick-books",
     "Quo": "quo",
+    "R2DataCatalog": "r2-data-catalog",
     "RB2B": "rb2b",
     "RDStationMarketing": "rd-station-marketing",
     "RKICovid": "rki-covid",

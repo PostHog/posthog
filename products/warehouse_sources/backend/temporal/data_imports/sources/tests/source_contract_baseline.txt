@@ -66,6 +66,7 @@ PlanetScaleMySQL not-checkable:driver:psycopg
 PlanetScalePostgres not-checkable:driver:psycopg
 Postgres not-checkable:driver:psycopg
 ProofpointTap not-checkable:no-request
+R2DataCatalog not-checkable:schemas
 RedditAds not-checkable:database
 Redshift not-checkable:driver:psycopg
 SFTP not-checkable:transport
