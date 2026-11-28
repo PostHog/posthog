@@ -23,6 +23,7 @@ import { ActivityScope } from '~/types'
 
 import { SOURCE_PREFILL_PARAM } from '../Broadcasts/broadcastAudiencePrefill'
 import { DRAFT_SOURCE_PARAM } from '../MessageAudience/aiEmailDraft'
+import { ATTEMPT_PREFILL_PARAM, parseAttemptPrefill } from '../MessageAudience/messageAudienceAttempts'
 import { EMAIL_PREFILL_PARAM } from '../MessageAudience/messageDrafts'
 import { batchWorkflowJobsLogic } from './batchWorkflowJobsLogic'
 import { MESSAGE_TEMPLATE_PREFILL_PARAM } from './emailTemplateWorkflowPrefill'
@@ -101,6 +102,7 @@ export function WorkflowScene(props: WorkflowSceneLogicProps): JSX.Element {
         messageTemplateId: typeof messageTemplateId === 'string' ? messageTemplateId : undefined,
         draftSource,
         entrySource: typeof entrySource === 'string' ? entrySource : undefined,
+        entryAttemptId: parseAttemptPrefill(searchParams[ATTEMPT_PREFILL_PARAM]),
     }
 
     const batchJobsLogic = batchWorkflowJobsLogic({ id: workflowSceneProps.id })

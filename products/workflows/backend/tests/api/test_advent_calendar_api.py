@@ -142,11 +142,48 @@ class TestAdventCalendarAPI(APIBaseTest):
             repeat = self._open_door_as(self.user, 3, "hoggy-elf", 60)
             other_day = self._open_door_as(self.user, 4, "hoggy-elf", 60)
 
-        assert first == {"day": 3, "opened_at": "2026-12-03T07:30:00Z", "utc_offset_minutes": -300}
+        assert first == {"day": 3, "opened_at": "2026-12-03T07:30:00Z", "ticket_days": [3]}
         assert repeat == first
-        assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z", "utc_offset_minutes": 60}
+        assert other_day == {"day": 4, "opened_at": "2026-12-04T07:30:00Z", "ticket_days": [3, 4]}
         stored = AdventCalendarDoorOpen.objects.get(user_id=self.user.id, day=3)
         assert (stored.hoggy, stored.utc_offset_minutes) == ("hoggy-santa", -300)
+
+    @parameterized.expand(
+        [
+            ("on_its_day", "2026-12-03T07:30:00", 0, [3]),
+            ("a_day_late", "2026-12-04T07:30:00", 0, []),
+            ("a_year_early", "2025-12-03T07:30:00", 0, []),
+            ("west_bound_still_the_day_before", "2026-12-03T11:59:00", -720, []),
+            ("west_bound_on_its_day", "2026-12-03T12:00:00", -720, [3]),
+            ("east_bound_on_its_day", "2026-12-02T10:00:00", 840, [3]),
+            ("east_bound_already_the_day_after", "2026-12-03T10:00:00", 840, []),
+        ]
+    )
+    def test_a_ticket_counts_a_first_open_on_its_day_in_the_stored_offset(
+        self, _name: str, opened_at: str, utc_offset_minutes: int, ticket_days: list[int]
+    ) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        with time_machine.travel(datetime(2026, 12, 3, 7, 30, tzinfo=UTC), tick=False):
+            self._open_door_as(teammate, 3, "hoggy-santa", 0)
+        with time_machine.travel(datetime.fromisoformat(opened_at).replace(tzinfo=UTC), tick=False):
+            opened = self._open_door_as(self.user, 3, "hoggy-santa", utc_offset_minutes)
+        self.client.force_login(self.user)
+        results = self.client.get(self._url(self.team, "results")).json()
+        answered = self._answer_as(self.user, self.team, 2, "tim")
+
+        assert [opened["ticket_days"], results["ticket_days"], answered["ticket_days"]] == [ticket_days] * 3
+
+    def test_an_open_as_another_person_than_the_signed_in_one_stores_nothing(self) -> None:
+        teammate = User.objects.create_and_join(self.organization, "teammate@example.com", "password")
+        self.client.force_login(self.user)
+        url = self._url(self.team, "open")
+        body = {"hoggy": "hoggy-santa", "utc_offset_minutes": 0}
+
+        as_teammate = self.client.post(url, {**body, "day": 2, "user_uuid": str(teammate.uuid)}, format="json")
+        as_self = self.client.post(url, {**body, "day": 3, "user_uuid": str(self.user.uuid)}, format="json")
+
+        assert (as_teammate.status_code, as_self.status_code) == (status.HTTP_409_CONFLICT, status.HTTP_200_OK)
+        assert list(AdventCalendarDoorOpen.objects.values_list("user_id", "day")) == [(self.user.id, 3)]
 
     def test_an_open_from_an_account_deleted_after_sign_in_returns_not_found(self) -> None:
         with patch(

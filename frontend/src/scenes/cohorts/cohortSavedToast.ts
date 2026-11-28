@@ -24,14 +24,15 @@ export function emailCohortToastButton(
         label: 'Email this cohort',
         dataAttr: `message-audience-${source}-broadcast`,
         action: () => {
-            captureMessageAudienceClicked(source, 'broadcast')
+            const attemptId = captureMessageAudienceClicked(source, 'broadcast')
             void openMessageAudience(
                 {
                     properties: cohortAudienceProperties(cohort),
                     source,
                     draftSource: { source: 'cohort', source_id: String(cohort.id) },
                 },
-                'broadcast'
+                'broadcast',
+                attemptId
             )
         },
     }

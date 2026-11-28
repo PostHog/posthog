@@ -1518,10 +1518,10 @@ describe('measurements', () => {
         ])
     })
 
-    it('counts a writer read for the step in which the writer answered it, also when that step was halted short', async () => {
-        const clock = [atS(58), atS(61)]
+    it('counts a writer read for the step in which the writer answered it, also when that step was halted short and the read closed after it', async () => {
+        const clock = [atS(58), atS(62.5)]
         const answeredLate = await readActivity(
-            () => Promise.resolve([{ state: 'active', wait: 'lock', count: 4 }]),
+            () => Promise.resolve({ at: atS(61), backends: [{ state: 'active', wait: 'lock', count: 4 }] }),
             () => clock.shift()!
         )
         const recorded = evidence({

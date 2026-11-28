@@ -45,22 +45,3 @@ export function cleanProgressByUser(value: unknown): Record<string, AdventProgre
         )
     )
 }
-
-export const TICKETS_STORAGE_KEY = 'workflows-advent-calendar-tickets'
-export const PENDING_TICKETS_STORAGE_KEY = 'workflows-advent-calendar-pending-tickets'
-
-export function storedTicketsByUser(): unknown {
-    try {
-        return JSON.parse(window.localStorage.getItem(TICKETS_STORAGE_KEY) ?? 'null')
-    } catch {
-        return null
-    }
-}
-
-export function cleanTicketsByUser(value: unknown): Record<string, number[]> {
-    return Object.fromEntries(
-        Object.entries(isRecord(value) ? value : {}).flatMap(([uuid, days]) =>
-            Array.isArray(days) ? [[uuid, [...new Set(days.filter(isAdventDay))].sort((x, y) => x - y)]] : []
-        )
-    )
-}

@@ -10096,17 +10096,17 @@ Note: Spec is the vendor's single-file OpenAPI (mollie/openapi repo, ~1.9 MB). C
 
 ## Monday — gaps
 
-Today (8): `board_activity_logs`, `board_columns`, `board_groups`, `boards`, `folders`, `items`, `users`, `workspaces`
+Today (12): `board_activity_logs`, `board_columns`, `board_groups`, `board_subscribers`, `boards`, `folders`, `items`, `tags`, `teams`, `updates`, `users`, `workspaces`
 
 Diffed against: <https://raw.githubusercontent.com/mondaycom/monday-graphql-api/main/packages/api-types/generated/api-types.d.ts>
 
 - [x] `boards { columns { id title type settings_str } }` — lookup that resolves the column ids inside every item's column_values — today those columns are unlabeled (high)
 - [x] `boards { activity_logs }` — board change history (status transitions, moves, assignments) — the only source of state-transition data (high)
 - [x] `boards { groups { id title } }` — lookup for the group ids items belong to, including groups with no items (medium)
-- [ ] `updates` — comments/updates on items — the collaboration activity stream (medium)
-- [ ] `teams` — team objects plus their users — resolves team owners/subscribers on boards (medium)
-- [ ] `boards { subscribers owners team_owners }` — board membership join table; boards currently sync with no ownership data (medium)
-- [ ] `tags` — tag lookup resolving tag ids stored in item column values (medium)
+- [x] `updates` — comments/updates on items — the collaboration activity stream (medium)
+- [x] `teams` — team objects plus their users — resolves team owners/subscribers on boards (medium)
+- [x] `boards { subscribers owners team_owners }` — board membership join table; boards currently sync with no ownership data (medium)
+- [x] `tags` — tag lookup resolving tag ids stored in item column values (medium)
 - [x] `folders` — workspace folder hierarchy that boards hang off via board_folder_id (medium)
 - [ ] `items { subitems }` — subitems live on separate boards and are missed by the current board-items walk (medium)
 - [ ] `docs` — workspace docs objects for content coverage alongside boards (low)
@@ -14117,7 +14117,7 @@ Note: Resource list taken from the ReadMe-generated reference index at docs.spli
 
 ## SplunkObservabilityCloud — gaps
 
-Today (20): `alert_muting_rules`, `audit_events`, `charts`, `clients`, `dashboard_groups`, `dashboards`, `detector_events`, `detectors`, `dimensions`, `events`, `incidents`, `metric_time_series`, `metrics`, `organization_members`, `roles`, `slos`, `synthetic_locations`, `synthetic_runs`, `synthetic_tests`, `teams`
+Today (24): `alert_muting_rules`, `audit_events`, `charts`, `clients`, `dashboard_groups`, `dashboards`, `data_links`, `detector_events`, `detectors`, `dimensions`, `events`, `incidents`, `metric_time_series`, `metrics`, `navigators`, `organization_members`, `roles`, `slos`, `synthetic_devices`, `synthetic_locations`, `synthetic_runs`, `synthetic_tests`, `tags`, `teams`
 
 Diffed against: <https://dev.splunk.com/observability/reference/>
 
@@ -14126,13 +14126,13 @@ Diffed against: <https://dev.splunk.com/observability/reference/>
 - [x] `tests/{id}/runs and runs/{id} (Synthetics runs)` — actual synthetic check results over time - the analytical fact table for uptime/latency (high)
 - [x] `locations (Synthetics GET /locations)` — lookup table resolving the location IDs stamped on every synthetic run (high)
 - [x] `event / event/find (GET /event, GET /event/find)` — org-wide custom and alert event stream; today only detector_events is synced (high)
-- [ ] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium)
+- [x] `tag (GET /tag, GET /tag/{name})` — metric tag lookup that resolves the breakdown labels on metrics and MTS (medium). Added as `tags` (full refresh; `GET /tag` search with `query=name:*`).
 - [x] `role (GET /role, GET /role/{roleId})` — role definitions and assignments complement organization_members for access analysis (medium)
 - [x] `audit events (GET /v2/audit/events)` — who changed which detector/dashboard and when (medium)
 - [x] `clients (GET /clients, /clients/metadata/values)` — agent/client inventory for fleet coverage reporting (medium)
-- [ ] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low)
-- [ ] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low)
-- [ ] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low)
+- [x] `navigator (GET /navigator, /navigator/{id}/dashboards)` — navigator definitions tie infrastructure categories to dashboards (low). Added as `navigators` (full refresh). The per-navigator dashboards call is left out: each navigator row already carries its dashboard id lists, and `dashboards` is synced.
+- [x] `devices (Synthetics GET /devices)` — lookup resolving device profiles referenced by browser tests (low). Added as `synthetic_devices` (full refresh).
+- [x] `crosslink (GET /crosslink)` — data link definitions that map dimensions to external targets (low). Added as `data_links` (full refresh).
 
 Note: The dev.splunk.com reference is a client-rendered SPA; the full API index (48 API groups with per-endpoint path/method/operationId) is embedded in the Next.js flight payload of https://dev.splunk.com/observability/reference/ and was parsed from there. Synthetics is a large, entirely-unexposed sub-API.
 
@@ -15311,14 +15311,14 @@ Note: Parsed GET operations on the official product reviews, private products, l
 
 ## TrustRadius — gaps
 
-Today (8): `intent`, `product_scores`, `products`, `tags`, `traffic_products`, `trustquotes`, `visitor_insights_companies`, `visitor_insights_pages`
+Today (10): `intent`, `product_scores`, `products`, `tags`, `traffic_pages`, `traffic_products`, `trustquotes`, `trustquotes_web_pages`, `visitor_insights_companies`, `visitor_insights_pages`
 
 Diffed against: <https://stoplight.io/api/v1/projects/trustradius/public-api/nodes/reference/api.oas3.yml?fromExportButton=true&snapshotType=http_service>
 
 - [x] `Intent data (GET /v1/intent)` — identify companies researching products, competitors, and categories, with activity details for sales and marketing analysis (high)
 - [x] `Aggregate traffic data (GET /v1/reports/traffic/products)` — measure product profile views, visits, visitors, and category traffic to assess demand and market share (high)
-- [ ] `Page-level traffic data (GET /v1/reports/traffic/pages)` — compare visits and page views across product pages, page types, and URLs (medium)
-- [ ] `TrustQuotes for Web performance (GET /v1/reports/syndication/tqw/pages)` — measure how review widgets perform on individual website pages (medium)
+- [x] `Page-level traffic data (GET /v1/reports/traffic/pages)` — compare visits and page views across product pages, page types, and URLs (medium) → `traffic_pages` (full refresh or incremental on `date`)
+- [x] `TrustQuotes for Web performance (GET /v1/reports/syndication/tqw/pages)` — measure how review widgets perform on individual website pages (medium) → `trustquotes_web_pages` (full refresh or incremental on `date`)
 - [x] `Company information and aggregate visit counts (GET /v1/reports/visitor-insights/companies)` — join identified company profiles and visit counts to account research activity (medium)
 - [x] `Company information and page view detail (GET /v1/reports/visitor-insights/pages)` — track which identified companies view or compare products on specific pages (medium)
 

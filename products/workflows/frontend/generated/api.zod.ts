@@ -3553,6 +3553,12 @@ export const WorkflowAdventCalendarOpenBody = /* @__PURE__ */ zod.object({
         .describe(
             "The browser's offset from UTC in minutes, east positive, from -720 to 840. A later rule uses it to tell which local day the person opened the door on."
         ),
+    user_uuid: zod
+        .uuid()
+        .optional()
+        .describe(
+            'The UUID of the person the browser opened the door as. When it is not the signed-in person, the server stores nothing and answers 409.'
+        ),
 })
 
 /**

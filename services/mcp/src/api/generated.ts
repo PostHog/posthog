@@ -14519,8 +14519,12 @@ export namespace Schemas {
       day: number;
       /** When the server stored the person's first open of this door. Opening it again keeps this time. */
       opened_at: string;
-      /** The browser's UTC offset in minutes at the first open of this door. Opening it again keeps this offset, so the first open's local day stays the same on every device. */
-      utc_offset_minutes: number;
+      /**
+         * The days whose door the signed-in person first opened on that day in their own time zone, using the offset stored with the first open. Each day is one raffle ticket. Sorted ascending.
+         * @items.minimum 1
+         * @items.maximum 24
+         */
+      ticket_days: number[];
     }
 
     export interface AdventCalendarDoorOpenRequest {
@@ -14542,6 +14546,8 @@ export namespace Schemas {
          * @maximum 840
          */
       utc_offset_minutes: number;
+      /** The UUID of the person the browser opened the door as. When it is not the signed-in person, the server stores nothing and answers 409. */
+      user_uuid?: string;
     }
 
     export interface AdventCalendarShare {
@@ -14592,6 +14598,12 @@ export namespace Schemas {
     export interface AdventCalendarResults {
       /** Every advent calendar question, by day. Shares count the answers of every user of this PostHog instance, not only this project's members. Each cloud region counts its own users. */
       questions: AdventCalendarQuestionResult[];
+      /**
+         * The days whose door the signed-in person first opened on that day in their own time zone, using the offset stored with the first open. Each day is one raffle ticket. Sorted ascending.
+         * @items.minimum 1
+         * @items.maximum 24
+         */
+      ticket_days: number[];
     }
 
     /**
@@ -131705,10 +131717,15 @@ export namespace Schemas {
       /** Delivered sends nobody clicked and how many converted. Null without an event. */
       without_click: TransactionalEmailConversions | null;
       /**
-         * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
+         * Sessions with a pageview from a link in this email: the pageview URL carries the ph_workflow_run tag of one of its clicked sends, up to window_days after the period. Reads the newest 10,000 clicked sends at most, see sessions_capped_at. Sends that went out while link tagging was off carry no tag. Null when link_tagging_enabled is false, when the user has no access to querying events, or when the count could not be computed.
          * @nullable
          */
       sessions: number | null;
+      /**
+         * Set when the period has more clicked sends than sessions reads: sessions then counts only the newest this many clicked sends. Null when sessions covers every clicked send, or when sessions is null.
+         * @nullable
+         */
+      sessions_capped_at: number | null;
       /** Whether the project setting that tags tracked links on the sender's own domain with ph_workflow_run is on now. The tag connects a click to its session. When false, sessions is null. Set it with workflows_config.email_workflow_run_link_tag_enabled in the project settings. */
       link_tagging_enabled: boolean;
     }
