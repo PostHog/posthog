@@ -1,16 +1,20 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
-import type { TooltipContext } from '../core/types'
-import { createDefaultTooltipAccessor, makeOverlayContext, renderOverlayInChart } from '../testing'
-import { DefaultTooltip } from './DefaultTooltip'
-import { Tooltip } from './Tooltip'
-import { TooltipSurface } from './TooltipSurface'
+import type { TooltipContext } from "../core/types";
+import {
+    createDefaultTooltipAccessor,
+    makeOverlayContext,
+    renderOverlayInChart,
+} from "../testing";
+import { DefaultTooltip } from "./DefaultTooltip";
+import { Tooltip } from "./Tooltip";
+import { TooltipSurface } from "./TooltipSurface";
 
-const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] }
+const SCALES = { x: () => 0, y: (v: number) => v, yTicks: () => [] };
 
-const SERIES_DATA: TooltipContext['seriesData'] = [
-    { series: { key: 'a', label: 'A', data: [] }, value: 19402, color: '#000' },
-]
+const SERIES_DATA: TooltipContext["seriesData"] = [
+    { series: { key: "a", label: "A", data: [] }, value: 19402, color: "#000" },
+];
 const CANVAS_BOUNDS = {
     x: 0,
     y: 0,
@@ -21,42 +25,48 @@ const CANVAS_BOUNDS = {
     bottom: 400,
     left: 0,
     toJSON: () => ({}),
-} as DOMRect
+} as DOMRect;
 
-type TooltipProps = Omit<Parameters<typeof DefaultTooltip>[0], keyof TooltipContext>
+type TooltipProps = Omit<
+    Parameters<typeof DefaultTooltip>[0],
+    keyof TooltipContext
+>;
 
 function renderTooltip(
     props: TooltipProps = {},
-    seriesData: TooltipContext['seriesData'] = SERIES_DATA,
-    ctxOverrides: Partial<TooltipContext> = {}
+    seriesData: TooltipContext["seriesData"] = SERIES_DATA,
+    ctxOverrides: Partial<TooltipContext> = {},
 ): void {
     const ctx: TooltipContext = {
         dataIndex: 0,
-        label: 'When',
+        label: "When",
         seriesData,
         position: { x: 0, y: 0 },
         hoverPosition: null,
         canvasBounds: CANVAS_BOUNDS,
         isPinned: false,
         ...ctxOverrides,
-    }
-    renderOverlayInChart(<DefaultTooltip {...ctx} {...props} />, makeOverlayContext(SCALES))
+    };
+    renderOverlayInChart(
+        <DefaultTooltip {...ctx} {...props} />,
+        makeOverlayContext(SCALES),
+    );
 }
 
-describe('DefaultTooltip', () => {
-    afterEach(cleanup)
+describe("DefaultTooltip", () => {
+    afterEach(cleanup);
 
-    it('formats values with default (no formatter)', () => {
-        renderTooltip({})
-        screen.getByText((19402).toLocaleString())
-    })
+    it("formats values with default (no formatter)", () => {
+        renderTooltip({});
+        screen.getByText((19402).toLocaleString());
+    });
 
-    it('excludes portalled tooltip values from autocapture', () => {
+    it("excludes portalled tooltip values from autocapture", () => {
         renderOverlayInChart(
             <Tooltip
                 context={{
                     dataIndex: 0,
-                    label: 'Example category',
+                    label: "Example category",
                     seriesData: SERIES_DATA,
                     position: { x: 0, y: 0 },
                     hoverPosition: null,
@@ -65,275 +75,539 @@ describe('DefaultTooltip', () => {
                 }}
                 renderTooltip={() => <span>Example tooltip value</span>}
             />,
-            makeOverlayContext(SCALES)
-        )
-        expect(screen.getByText('Example tooltip value').closest('.ph-no-capture')).not.toBeNull()
-    })
+            makeOverlayContext(SCALES),
+        );
+        expect(
+            screen.getByText("Example tooltip value").closest(".ph-no-capture"),
+        ).not.toBeNull();
+    });
 
-    it('renders TooltipSurface outside a chart', () => {
-        render(<TooltipSurface>Outside a chart</TooltipSurface>)
-        screen.getByText('Outside a chart')
-    })
+    it("renders TooltipSurface outside a chart", () => {
+        render(<TooltipSurface>Outside a chart</TooltipSurface>);
+        screen.getByText("Outside a chart");
+    });
 
-    it('formats values with custom valueFormatter', () => {
-        renderTooltip({ valueFormatter: (v: number) => `${v}ms` })
-        screen.getByText('19402ms')
-        expect(screen.queryByText((19402).toLocaleString())).toBeNull()
-    })
+    it("formats values with custom valueFormatter", () => {
+        renderTooltip({ valueFormatter: (v: number) => `${v}ms` });
+        screen.getByText("19402ms");
+        expect(screen.queryByText((19402).toLocaleString())).toBeNull();
+    });
 
-    it('passes each row entry to valueFormatter so it can format per-series', () => {
-        const seriesData: TooltipContext['seriesData'] = [
-            { series: { key: 'usd', label: 'Revenue', data: [], meta: { unit: '$' } }, value: 12, color: '#000' },
-            { series: { key: 'pct', label: 'Rate', data: [], meta: { unit: '%' } }, value: 34, color: '#111' },
-        ]
+    it("passes each row entry to valueFormatter so it can format per-series", () => {
+        const seriesData: TooltipContext["seriesData"] = [
+            {
+                series: {
+                    key: "usd",
+                    label: "Revenue",
+                    data: [],
+                    meta: { unit: "$" },
+                },
+                value: 12,
+                color: "#000",
+            },
+            {
+                series: {
+                    key: "pct",
+                    label: "Rate",
+                    data: [],
+                    meta: { unit: "%" },
+                },
+                value: 34,
+                color: "#111",
+            },
+        ];
         renderTooltip(
             {
-                valueFormatter: (value, entry) => `${value}${(entry.series.meta as { unit: string }).unit}`,
+                valueFormatter: (value, entry) =>
+                    `${value}${(entry.series.meta as { unit: string }).unit}`,
             },
-            seriesData
-        )
-        screen.getByText('12$')
-        screen.getByText('34%')
-    })
+            seriesData,
+        );
+        screen.getByText("12$");
+        screen.getByText("34%");
+    });
 
-    describe('total row', () => {
-        const TWO_SERIES: TooltipContext['seriesData'] = [
-            { series: { key: 'a', label: 'A', data: [] }, value: 10, color: '#000' },
-            { series: { key: 'b', label: 'B', data: [] }, value: 25, color: '#111' },
-        ]
+    describe("total row", () => {
+        const TWO_SERIES: TooltipContext["seriesData"] = [
+            {
+                series: { key: "a", label: "A", data: [] },
+                value: 10,
+                color: "#000",
+            },
+            {
+                series: { key: "b", label: "B", data: [] },
+                value: 25,
+                color: "#111",
+            },
+        ];
 
-        it('sums the visible series and labels the row', () => {
-            renderTooltip({ showTotal: true }, TWO_SERIES)
-            screen.getByText('Total')
-            screen.getByText((35).toLocaleString())
-        })
+        it("sums the visible series and labels the row", () => {
+            renderTooltip({ showTotal: true }, TWO_SERIES);
+            screen.getByText("Total");
+            screen.getByText((35).toLocaleString());
+        });
 
-        it('uses a custom label and total formatter', () => {
-            renderTooltip({ showTotal: true, totalLabel: 'Sum', totalFormatter: (v) => `$${v}` }, TWO_SERIES)
-            screen.getByText('Sum')
-            screen.getByText('$35')
-        })
-
-        it('falls back to valueFormatter for the total, applied with the first summable entry', () => {
-            const metaSeries: TooltipContext['seriesData'] = [
-                { series: { key: 'usd', label: 'Revenue', data: [], meta: { unit: '$' } }, value: 10, color: '#000' },
-                {
-                    series: { key: 'usd2', label: 'Revenue 2', data: [], meta: { unit: '€' } },
-                    value: 25,
-                    color: '#111',
-                },
-            ]
+        it("uses a custom label and total formatter", () => {
             renderTooltip(
                 {
                     showTotal: true,
-                    valueFormatter: (v, entry) => `${v}${(entry.series.meta as { unit: string }).unit}`,
+                    totalLabel: "Sum",
+                    totalFormatter: (v) => `$${v}`,
                 },
-                metaSeries
-            )
+                TWO_SERIES,
+            );
+            screen.getByText("Sum");
+            screen.getByText("$35");
+        });
+
+        it("falls back to valueFormatter for the total, applied with the first summable entry", () => {
+            const metaSeries: TooltipContext["seriesData"] = [
+                {
+                    series: {
+                        key: "usd",
+                        label: "Revenue",
+                        data: [],
+                        meta: { unit: "$" },
+                    },
+                    value: 10,
+                    color: "#000",
+                },
+                {
+                    series: {
+                        key: "usd2",
+                        label: "Revenue 2",
+                        data: [],
+                        meta: { unit: "€" },
+                    },
+                    value: 25,
+                    color: "#111",
+                },
+            ];
+            renderTooltip(
+                {
+                    showTotal: true,
+                    valueFormatter: (v, entry) =>
+                        `${v}${(entry.series.meta as { unit: string }).unit}`,
+                },
+                metaSeries,
+            );
             // total uses summable[0]'s entry (unit '$'), not summable[1]'s ('€')
-            screen.getByText('35$')
-            expect(screen.queryByText('35€')).toBeNull()
-        })
+            screen.getByText("35$");
+            expect(screen.queryByText("35€")).toBeNull();
+        });
 
-        it('is suppressed for a single series', () => {
-            renderTooltip({ showTotal: true }, SERIES_DATA)
-            expect(screen.queryByText('Total')).toBeNull()
-        })
+        it("is suppressed for a single series", () => {
+            renderTooltip({ showTotal: true }, SERIES_DATA);
+            expect(screen.queryByText("Total")).toBeNull();
+        });
 
-        it('is suppressed when showTotal is not set', () => {
-            renderTooltip({}, TWO_SERIES)
-            expect(screen.queryByText('Total')).toBeNull()
-        })
+        it("is suppressed when showTotal is not set", () => {
+            renderTooltip({}, TWO_SERIES);
+            expect(screen.queryByText("Total")).toBeNull();
+        });
 
-        it('excludes overlay series from the sum and the summable count', () => {
-            const withOverlay: TooltipContext['seriesData'] = [
-                ...TWO_SERIES,
-                { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 1000, color: '#222' },
-            ]
-            renderTooltip({ showTotal: true }, withOverlay)
-            screen.getByText((35).toLocaleString())
-            expect(screen.queryByText((1035).toLocaleString())).toBeNull()
-        })
-
-        it('excludes visibility.total: false series from the sum but still renders its row', () => {
-            // A percentage column alongside counts: its 2.4 must not leak into the counts' total.
-            const withPercent: TooltipContext['seriesData'] = [
+        it("excludes overlay series from the sum and the summable count", () => {
+            const withOverlay: TooltipContext["seriesData"] = [
                 ...TWO_SERIES,
                 {
-                    series: { key: 'pct', label: 'Rate', data: [], visibility: { total: false } },
-                    value: 2.4,
-                    color: '#222',
+                    series: {
+                        key: "goal",
+                        label: "Goal",
+                        data: [],
+                        overlay: true,
+                    },
+                    value: 1000,
+                    color: "#222",
                 },
-            ]
-            renderTooltip({ showTotal: true }, withPercent)
-            expect(screen.getAllByText('Rate').length).toBeGreaterThan(0)
-            screen.getByText((35).toLocaleString())
-            expect(screen.queryByText((37.4).toLocaleString())).toBeNull()
-        })
+            ];
+            renderTooltip({ showTotal: true }, withOverlay);
+            screen.getByText((35).toLocaleString());
+            expect(screen.queryByText((1035).toLocaleString())).toBeNull();
+        });
 
-        it('is suppressed when only one non-overlay series remains', () => {
-            const oneRealOneOverlay: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'A', data: [] }, value: 10, color: '#000' },
-                { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: '#222' },
-            ]
-            renderTooltip({ showTotal: true }, oneRealOneOverlay)
-            expect(screen.queryByText('Total')).toBeNull()
-        })
-    })
+        it("excludes visibility.total: false series from the sum but still renders its row", () => {
+            // A percentage column alongside counts: its 2.4 must not leak into the counts' total.
+            const withPercent: TooltipContext["seriesData"] = [
+                ...TWO_SERIES,
+                {
+                    series: {
+                        key: "pct",
+                        label: "Rate",
+                        data: [],
+                        visibility: { total: false },
+                    },
+                    value: 2.4,
+                    color: "#222",
+                },
+            ];
+            renderTooltip({ showTotal: true }, withPercent);
+            expect(screen.getAllByText("Rate").length).toBeGreaterThan(0);
+            screen.getByText((35).toLocaleString());
+            expect(screen.queryByText((37.4).toLocaleString())).toBeNull();
+        });
 
-    describe('createDefaultTooltipAccessor', () => {
-        it('reads the label, rows, values, swatch colors, and total', () => {
-            const seriesData: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'Revenue', data: [] }, value: 100, color: 'rgb(255, 0, 0)' },
-                { series: { key: 'b', label: 'Cost', data: [] }, value: 40, color: 'rgb(0, 255, 0)' },
-            ]
-            renderTooltip({ showTotal: true, valueFormatter: (v) => `$${v}` }, seriesData)
+        it("is suppressed when only one non-overlay series remains", () => {
+            const oneRealOneOverlay: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "A", data: [] },
+                    value: 10,
+                    color: "#000",
+                },
+                {
+                    series: {
+                        key: "goal",
+                        label: "Goal",
+                        data: [],
+                        overlay: true,
+                    },
+                    value: 30,
+                    color: "#222",
+                },
+            ];
+            renderTooltip({ showTotal: true }, oneRealOneOverlay);
+            expect(screen.queryByText("Total")).toBeNull();
+        });
+    });
 
-            const tooltip = createDefaultTooltipAccessor(document.body)
-            expect(tooltip.label()).toBe('When')
-            expect(tooltip.rows()).toEqual(['Revenue', 'Cost'])
-            expect(tooltip.value('Revenue')).toBe('$100')
-            expect(tooltip.value('Cost')).toBe('$40')
-            expect(tooltip.swatchColors()).toEqual(['rgb(255, 0, 0)', 'rgb(0, 255, 0)'])
-            expect(tooltip.total()).toBe('$140')
-        })
+    describe("createDefaultTooltipAccessor", () => {
+        it("reads the label, rows, values, swatch colors, and total", () => {
+            const seriesData: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "Revenue", data: [] },
+                    value: 100,
+                    color: "rgb(255, 0, 0)",
+                },
+                {
+                    series: { key: "b", label: "Cost", data: [] },
+                    value: 40,
+                    color: "rgb(0, 255, 0)",
+                },
+            ];
+            renderTooltip(
+                { showTotal: true, valueFormatter: (v) => `$${v}` },
+                seriesData,
+            );
 
-        it('returns undefined total when no total row is shown', () => {
-            renderTooltip({})
-            expect(createDefaultTooltipAccessor(document.body).total()).toBeUndefined()
-        })
+            const tooltip = createDefaultTooltipAccessor(document.body);
+            expect(tooltip.label()).toBe("When");
+            expect(tooltip.rows()).toEqual(["Revenue", "Cost"]);
+            expect(tooltip.value("Revenue")).toBe("$100");
+            expect(tooltip.value("Cost")).toBe("$40");
+            expect(tooltip.swatchColors()).toEqual([
+                "rgb(255, 0, 0)",
+                "rgb(0, 255, 0)",
+            ]);
+            expect(tooltip.total()).toBe("$140");
+        });
 
-        it('includes overlay series in rows (rows is every rendered row, not summable-only)', () => {
-            const seriesData: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'Visits', data: [] }, value: 100, color: 'rgb(1, 2, 3)' },
-                { series: { key: 'goal', label: 'Goal', data: [], overlay: true }, value: 30, color: 'rgb(4, 5, 6)' },
-            ]
-            renderTooltip({}, seriesData)
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['Visits', 'Goal'])
-        })
-    })
+        it("returns undefined total when no total row is shown", () => {
+            renderTooltip({});
+            expect(
+                createDefaultTooltipAccessor(document.body).total(),
+            ).toBeUndefined();
+        });
 
-    describe('row presentation props', () => {
-        const TWO_SERIES: TooltipContext['seriesData'] = [
-            { series: { key: 'a', label: 'Alpha', data: [] }, value: 10, color: '#000' },
-            { series: { key: 'b', label: 'Beta', data: [] }, value: 25, color: '#111' },
-        ]
+        it("includes overlay series in rows (rows is every rendered row, not summable-only)", () => {
+            const seriesData: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "Visits", data: [] },
+                    value: 100,
+                    color: "rgb(1, 2, 3)",
+                },
+                {
+                    series: {
+                        key: "goal",
+                        label: "Goal",
+                        data: [],
+                        overlay: true,
+                    },
+                    value: 30,
+                    color: "rgb(4, 5, 6)",
+                },
+            ];
+            renderTooltip({}, seriesData);
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
+                "Visits",
+                "Goal",
+            ]);
+        });
+    });
 
-        it('renders the header label by default', () => {
-            renderTooltip({})
-            expect(document.querySelector('[data-attr="hog-chart-tooltip-label"]')?.textContent).toBe('When')
-        })
+    describe("row presentation props", () => {
+        const TWO_SERIES: TooltipContext["seriesData"] = [
+            {
+                series: { key: "a", label: "Alpha", data: [] },
+                value: 10,
+                color: "#000",
+            },
+            {
+                series: { key: "b", label: "Beta", data: [] },
+                value: 25,
+                color: "#111",
+            },
+        ];
 
-        it('hides the header label when showHeader is false', () => {
-            renderTooltip({ showHeader: false })
-            expect(document.querySelector('[data-attr="hog-chart-tooltip-label"]')).toBeNull()
-        })
+        it("renders the header label by default", () => {
+            renderTooltip({});
+            expect(
+                document.querySelector('[data-attr="hog-chart-tooltip-label"]')
+                    ?.textContent,
+            ).toBe("When");
+        });
 
-        it('labelRenderer overrides each row label', () => {
-            renderTooltip({ labelRenderer: (entry) => `# ${entry.series.label}` }, TWO_SERIES)
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['# Alpha', '# Beta'])
-        })
+        it("hides the header label when showHeader is false", () => {
+            renderTooltip({ showHeader: false });
+            expect(
+                document.querySelector('[data-attr="hog-chart-tooltip-label"]'),
+            ).toBeNull();
+        });
 
-        it('hideZeroRows drops rows whose value is exactly 0', () => {
-            const withZero: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'Alpha', data: [] }, value: 0, color: '#000' },
-                { series: { key: 'b', label: 'Beta', data: [] }, value: 25, color: '#111' },
-            ]
-            renderTooltip({ hideZeroRows: true }, withZero)
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['Beta'])
-        })
+        it("labelRenderer overrides each row label", () => {
+            renderTooltip(
+                { labelRenderer: (entry) => `# ${entry.series.label}` },
+                TWO_SERIES,
+            );
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
+                "# Alpha",
+                "# Beta",
+            ]);
+        });
 
-        it('keeps zero-value rows when hideZeroRows is not set', () => {
-            const withZero: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'Alpha', data: [] }, value: 0, color: '#000' },
-                { series: { key: 'b', label: 'Beta', data: [] }, value: 25, color: '#111' },
-            ]
-            renderTooltip({}, withZero)
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['Alpha', 'Beta'])
-        })
+        it.each([
+            { clipped: "none", expectedTitle: null },
+            { clipped: "label", expectedTitle: "Feature flags (limit $500)" },
+            { clipped: "nested", expectedTitle: "Feature flags (limit $500)" },
+        ])(
+            "shows the full label as a hover title when the $clipped span is clipped",
+            ({ clipped, expectedTitle }) => {
+                renderTooltip(
+                    {
+                        labelRenderer: (entry) => (
+                            <span className="nested">{entry.series.label}</span>
+                        ),
+                    },
+                    [
+                        {
+                            series: {
+                                key: "a",
+                                label: "Feature flags (limit $500)",
+                                data: [],
+                            },
+                            value: 1,
+                            color: "#000",
+                        },
+                    ],
+                    { isPinned: true },
+                );
+                const label = document.querySelector<HTMLElement>(
+                    '[data-attr="hog-chart-tooltip-series"]',
+                )!;
+                const clippedEl =
+                    clipped === "label"
+                        ? label
+                        : clipped === "nested"
+                          ? label.querySelector<HTMLElement>(".nested")
+                          : null;
+                if (clippedEl) {
+                    // jsdom does no layout, so both widths read 0 unless the test sets them.
+                    Object.defineProperty(clippedEl, "scrollWidth", {
+                        configurable: true,
+                        value: 300,
+                    });
+                    Object.defineProperty(clippedEl, "clientWidth", {
+                        configurable: true,
+                        value: 120,
+                    });
+                }
+                fireEvent.mouseEnter(label);
+                expect(label.getAttribute("title")).toBe(expectedTitle);
+            },
+        );
 
-        it('onRowClick fires with the clicked row entry', () => {
-            const onRowClick = jest.fn()
-            renderTooltip({ onRowClick }, TWO_SERIES)
-            const rows = document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')
-            fireEvent.click(rows[1])
-            expect(onRowClick).toHaveBeenCalledTimes(1)
-            expect(onRowClick.mock.calls[0][0].series.key).toBe('b')
-        })
+        it("hideZeroRows drops rows whose value is exactly 0", () => {
+            const withZero: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "Alpha", data: [] },
+                    value: 0,
+                    color: "#000",
+                },
+                {
+                    series: { key: "b", label: "Beta", data: [] },
+                    value: 25,
+                    color: "#111",
+                },
+            ];
+            renderTooltip({ hideZeroRows: true }, withZero);
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
+                "Beta",
+            ]);
+        });
 
-        it('onRowClick does not fire when the click completes a text selection', () => {
-            const onRowClick = jest.fn()
-            renderTooltip({ onRowClick }, TWO_SERIES)
+        it("keeps zero-value rows when hideZeroRows is not set", () => {
+            const withZero: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "Alpha", data: [] },
+                    value: 0,
+                    color: "#000",
+                },
+                {
+                    series: { key: "b", label: "Beta", data: [] },
+                    value: 25,
+                    color: "#111",
+                },
+            ];
+            renderTooltip({}, withZero);
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
+                "Alpha",
+                "Beta",
+            ]);
+        });
+
+        it("onRowClick fires with the clicked row entry", () => {
+            const onRowClick = jest.fn();
+            renderTooltip({ onRowClick }, TWO_SERIES);
+            const rows = document.querySelectorAll<HTMLElement>(
+                '[data-attr="hog-chart-tooltip-row"]',
+            );
+            fireEvent.click(rows[1]);
+            expect(onRowClick).toHaveBeenCalledTimes(1);
+            expect(onRowClick.mock.calls[0][0].series.key).toBe("b");
+        });
+
+        it("onRowClick does not fire when the click completes a text selection", () => {
+            const onRowClick = jest.fn();
+            renderTooltip({ onRowClick }, TWO_SERIES);
             const spy = jest
-                .spyOn(window, 'getSelection')
-                .mockReturnValue({ toString: () => 'copied text' } as Selection)
-            fireEvent.click(document.querySelectorAll<HTMLElement>('[data-attr="hog-chart-tooltip-row"]')[1])
-            expect(onRowClick).not.toHaveBeenCalled()
-            spy.mockRestore()
-        })
+                .spyOn(window, "getSelection")
+                .mockReturnValue({
+                    toString: () => "copied text",
+                } as Selection);
+            fireEvent.click(
+                document.querySelectorAll<HTMLElement>(
+                    '[data-attr="hog-chart-tooltip-row"]',
+                )[1],
+            );
+            expect(onRowClick).not.toHaveBeenCalled();
+            spy.mockRestore();
+        });
 
-        it('sorts rows by yPixel ascending (visual top-to-bottom) when not sortedByValue', () => {
-            const withYPixel: TooltipContext['seriesData'] = [
-                { series: { key: 'low', label: 'Low', data: [] }, value: 5, color: '#000', yPixel: 300 },
-                { series: { key: 'high', label: 'High', data: [] }, value: 5, color: '#111', yPixel: 50 },
-            ]
-            renderTooltip({}, withYPixel)
+        it("sorts rows by yPixel ascending (visual top-to-bottom) when not sortedByValue", () => {
+            const withYPixel: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "low", label: "Low", data: [] },
+                    value: 5,
+                    color: "#000",
+                    yPixel: 300,
+                },
+                {
+                    series: { key: "high", label: "High", data: [] },
+                    value: 5,
+                    color: "#111",
+                    yPixel: 50,
+                },
+            ];
+            renderTooltip({}, withYPixel);
             // yPixel 50 sits visually higher on the canvas, so it leads despite being declared second.
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(['High', 'Low'])
-        })
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual([
+                "High",
+                "Low",
+            ]);
+        });
 
         // Alpha (10) sits below Beta (25), as on a real chart, so value order and pixel order disagree.
         it.each<[string, TooltipProps, Partial<TooltipContext>, string[]]>([
-            ['sortedByValue: true puts the highest value first', { sortedByValue: true }, {}, ['Beta', 'Alpha']],
-            ["sortedByValue: 'asc' puts the lowest value first", { sortedByValue: 'asc' }, {}, ['Alpha', 'Beta']],
+            [
+                "sortedByValue: true puts the highest value first",
+                { sortedByValue: true },
+                {},
+                ["Beta", "Alpha"],
+            ],
+            [
+                "sortedByValue: 'asc' puts the lowest value first",
+                { sortedByValue: "asc" },
+                {},
+                ["Alpha", "Beta"],
+            ],
             [
                 "mode: 'single' lists only the row closest to the cursor",
-                { mode: 'single' },
+                { mode: "single" },
                 { hoverPosition: { x: 0, y: 290 } },
-                ['Alpha'],
+                ["Alpha"],
             ],
             [
                 "mode: 'single' lists the hovered stacked segment over the closest row",
-                { mode: 'single' },
-                { hoverPosition: { x: 0, y: 40 }, hoveredSeriesKey: 'a' },
-                ['Alpha'],
+                { mode: "single" },
+                { hoverPosition: { x: 0, y: 40 }, hoveredSeriesKey: "a" },
+                ["Alpha"],
             ],
-            ["mode: 'single' lists every row without a cursor", { mode: 'single' }, {}, ['Beta', 'Alpha']],
+            [
+                "mode: 'single' lists every row without a cursor",
+                { mode: "single" },
+                {},
+                ["Beta", "Alpha"],
+            ],
             [
                 "mode: 'single' lists every row when pinned",
-                { mode: 'single' },
+                { mode: "single" },
                 { hoverPosition: { x: 0, y: 290 }, isPinned: true },
-                ['Beta', 'Alpha'],
+                ["Beta", "Alpha"],
             ],
-        ])('%s', (_, props, ctxOverrides, expectedRows) => {
-            const withYPixel: TooltipContext['seriesData'] = [
+        ])("%s", (_, props, ctxOverrides, expectedRows) => {
+            const withYPixel: TooltipContext["seriesData"] = [
                 { ...TWO_SERIES[0], yPixel: 300 },
                 { ...TWO_SERIES[1], yPixel: 40 },
-            ]
-            renderTooltip(props, withYPixel, ctxOverrides)
-            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(expectedRows)
-        })
+            ];
+            renderTooltip(props, withYPixel, ctxOverrides);
+            expect(createDefaultTooltipAccessor(document.body).rows()).toEqual(
+                expectedRows,
+            );
+        });
 
-        it('marks the row whose yPixel is closest to the cursor with data-closest', () => {
-            const withYPixel: TooltipContext['seriesData'] = [
-                { series: { key: 'a', label: 'Alpha', data: [] }, value: 5, color: '#000', yPixel: 40 },
-                { series: { key: 'b', label: 'Beta', data: [] }, value: 5, color: '#111', yPixel: 300 },
-            ]
-            renderTooltip({}, withYPixel, { hoverPosition: { x: 0, y: 290 } })
-            const closest = document.querySelectorAll<HTMLElement>('[data-closest="true"]')
-            expect(closest).toHaveLength(1)
-            expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
-        })
+        it("marks the row whose yPixel is closest to the cursor with data-closest", () => {
+            const withYPixel: TooltipContext["seriesData"] = [
+                {
+                    series: { key: "a", label: "Alpha", data: [] },
+                    value: 5,
+                    color: "#000",
+                    yPixel: 40,
+                },
+                {
+                    series: { key: "b", label: "Beta", data: [] },
+                    value: 5,
+                    color: "#111",
+                    yPixel: 300,
+                },
+            ];
+            renderTooltip({}, withYPixel, { hoverPosition: { x: 0, y: 290 } });
+            const closest = document.querySelectorAll<HTMLElement>(
+                '[data-closest="true"]',
+            );
+            expect(closest).toHaveLength(1);
+            expect(
+                closest[0].querySelector(
+                    '[data-attr="hog-chart-tooltip-series"]',
+                )?.textContent,
+            ).toBe("Beta");
+        });
 
-        it('marks the hovered series row before using the cursor position', () => {
-            const withYPixel: TooltipContext['seriesData'] = [
+        it("marks the hovered series row before using the cursor position", () => {
+            const withYPixel: TooltipContext["seriesData"] = [
                 { ...TWO_SERIES[0], yPixel: 0 },
                 { ...TWO_SERIES[1], yPixel: 300 },
-            ]
-            renderTooltip({}, withYPixel, { hoveredSeriesKey: 'b', hoverPosition: { x: 0, y: 0 } })
-            const closest = document.querySelectorAll<HTMLElement>('[data-closest="true"]')
-            expect(closest).toHaveLength(1)
-            expect(closest[0].querySelector('[data-attr="hog-chart-tooltip-series"]')?.textContent).toBe('Beta')
-        })
-    })
-})
+            ];
+            renderTooltip({}, withYPixel, {
+                hoveredSeriesKey: "b",
+                hoverPosition: { x: 0, y: 0 },
+            });
+            const closest = document.querySelectorAll<HTMLElement>(
+                '[data-closest="true"]',
+            );
+            expect(closest).toHaveLength(1);
+            expect(
+                closest[0].querySelector(
+                    '[data-attr="hog-chart-tooltip-series"]',
+                )?.textContent,
+            ).toBe("Beta");
+        });
+    });
+});
