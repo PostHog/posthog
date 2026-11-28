@@ -55,20 +55,35 @@ By default the response is `{ summary: {…}, results: [], _posthogUrl: "…" }`
 - `critical_path` — the spans the trace's end time waits on, from the root down (`depth`), with a run of same-named siblings collapsed into one entry with a `count`; spans under 1% of the root's duration are left out and counted in `critical_path_omitted`
 - `repeated_spans` — service and name pairs that occur more than once, by total time; many fast repeats are an N+1 pattern
 - `errors` — error spans with the exception `message`
-- `truncated` — true when the trace has more than 2000 spans and the digest covers only the first 2000
+- `truncated` — true when the trace has more than 2000 spans and the digest covers only the first 2000. The summary is then incomplete: counts, errors, and the critical path leave out every later span. Fetch all pages as in Step 2 before you draw conclusions about the whole trace.
 - The `_posthogUrl` — a deep link to this trace in the tracing UI; **always include this in your response** so the user can click through
 
 Use the `span_id`s in the summary to say which span you mean, and pass `summaryLimit` (up to 50) for longer lists.
 
 ### Step 2 — Fetch every span only when the summary is not enough
 
-Pass `"summary": false` to get `{ results: [span, span, …], hasMore, nextOffset }`: every span with `name`, `service_name`, `kind`, `status_code`, `parent_span_id`, `duration_nano`, `self_time_nano`, `is_root_span`, its `attributes` and `events`. Set `"excludeAttributes": true` unless you need the attributes. The list can be very large for fan-out request flows; when it exceeds the inline limit, Claude Code auto-persists it to a file.
+Pass `"summary": false` to get `{ results: [span, span, …], hasMore, nextOffset }`: one page of up to 2000 spans, ordered by start time, each with `name`, `service_name`, `kind`, `status_code`, `parent_span_id`, `duration_nano`, `self_time_nano`, `is_root_span`, its `attributes` and `events`. Set `"excludeAttributes": true` unless you need the attributes. The list can be very large for fan-out request flows; when it exceeds the inline limit, Claude Code auto-persists it to a file.
 
-When the result is persisted to a file (traces with hundreds of spans across services), use the [parsing scripts](./scripts/) to explore it.
+**Fetch every page.** While `hasMore` is true, call again with `"offset"` set to the returned `nextOffset`. Stop only when `hasMore` is false. One page of a longer trace is not the whole trace: the tree has missing children and the error list can miss the failing span.
+
+```json
+posthog:apm-trace-get
+{
+  "trace_id": "<hex_trace_id>",
+  "summary": false,
+  "excludeAttributes": true,
+  "offset": 2000
+}
+```
+
+When the result is persisted to a file (traces with hundreds of spans across services), use the [parsing scripts](./scripts/) to explore it. If the trace took more than one page, merge the page files first and run the other scripts on the merged file. The merge keeps a span that appears on two pages once, and warns when the last page is missing.
 
 **Start with the summary** to get the full picture, then drill into specifics:
 
 ```bash
+# 0. Several pages: merge them, in any order, into one file
+python3 scripts/merge_pages.py /path/to/page-0.json /path/to/page-2000.json > /path/to/trace.json
+
 # 1. Overview: services, span count, slowest spans, errors
 python3 scripts/print_summary.py /path/to/persisted-file.json
 
