@@ -11,11 +11,13 @@ from posthog.hogql.database.models import (
 from posthog.hogql.database.schema.logs import LogsKafkaMetricsTable
 
 from posthog.clickhouse.workload import Workload
+from posthog.scopes.catalog import APIScopeObject
 
 
 class TraceSpansTable(Table):
     description: str = "OpenTelemetry trace spans, one row per span; join to `logs` on `trace_id`/`span_id`."
     workload: Workload | None = Workload.LOGS
+    access_scope: APIScopeObject = "tracing"
 
     fields: dict[str, FieldOrTable] = {
         "uuid": StringDatabaseField(name="uuid", nullable=False, description="Unique identifier of this span row."),
@@ -109,6 +111,7 @@ class TraceSpansTable(Table):
 class TraceAttributesTable(Table):
     description: str = "Distinct trace span attribute key/value pairs with occurrence counts, used to power span attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS
+    access_scope: APIScopeObject = "tracing"
 
     fields: dict[str, FieldOrTable] = {
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),

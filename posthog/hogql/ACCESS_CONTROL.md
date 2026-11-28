@@ -82,6 +82,20 @@ You don't have access to table `system.error_tracking_issues`.
 
 This is a `QueryError` (`posthog/hogql/errors.py`), so it's exposed to the user.
 
+### Product tables under `posthog.`
+
+A ClickHouse table under `posthog.` that holds one product's data can declare an `access_scope` too: `posthog.trace_spans` and `posthog.trace_attributes` declare `"tracing"`.
+`access_controlled_posthog_tables()` collects them, and the same decision removes them for a user whose access to that resource is `none`, with the same `You don't have access to table` error.
+Unlike system tables, they stay readable without a user: product query runners and alerts read them without one, and the product's API permissions gate those requests.
+Synthetic and shared-link principals read them only when their scopes cover the resource, so a member denied it cannot read it through their own shared insight.
+They also partition the query cache by their scope, including when a structured query names one in a warehouse node.
+A raw HogQL query with a placeholder in a `FROM` or `JOIN` position partitions on every scope, since the table it reads is unknown until the placeholder expands.
+A materialized view whose definition reads one of these tables, at any depth, is denied to the same users, even though it resolves to its stored copy.
+Until the copy is rebuilt, it is gated on every product scope when its definition, or a view that definition reads, changed after its last build, because the copy still holds what the old definition read.
+It is also gated on every product scope when a definition it walks may read a table by no name: a HogQLX tag that expands to a query, anywhere in the definition, a warehouse join chain from a table it reads to a product table or a saved view, or a saved expression with a subquery or tag on such a table.
+The same query tags make a raw HogQL query partition the cache on every scope, as placeholders do.
+A change to the team's warehouse joins or saved expressions after the last build counts as a definition change, since the build read the ones that existed then.
+
 ### Object-level access
 
 Some resources support per-object access controls - dashboards, insights, notebooks, feature flags, experiments, surveys, error tracking issues, session recordings, etc.

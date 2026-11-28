@@ -2,7 +2,7 @@ import hashlib
 import inspect
 import threading
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Collection, Iterable, Sequence
 from contextlib import ExitStack, suppress
 from datetime import UTC, datetime, timedelta
 from enum import StrEnum
@@ -137,7 +137,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import (
+    Database,
+    access_controlled_posthog_tables,
+    denied_posthog_table_scopes,
+    read_posthog_table_scopes,
+    record_read_scopes,
+)
 from posthog.hogql.modifiers import create_default_modifiers_for_user
 from posthog.hogql.printer import prepare_and_print_ast, to_printed_hogql
 from posthog.hogql.query import create_default_modifiers_for_team
@@ -324,6 +330,8 @@ def _contains_user_hogql_label() -> str:
 
 EXTENDED_CACHE_AGE = timedelta(days=1)
 CACHE_ENTRY_FRESHNESS_KEY = "_freshness"
+# Resources gating the `posthog.*` tables a cached result read. Stored beside the result, never in its key.
+CACHE_ENTRY_READ_SCOPES_KEY = "_read_scopes"
 
 FOLLOWER_RAN_ALONE_ACTIONS: dict[FlightOutcome, str] = {
     "unavailable": "follower_ran_alone",
@@ -2425,21 +2433,30 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         else:
             cached_response_candidate = entry.as_full_response() if entry else None
 
+        read_scopes: list[str] = []
+        legacy_entry = False
         if self.is_cached_response(cached_response_candidate):
             assert cached_response_candidate is not None
             if raw_results is not None:
                 cached_response_candidate["results"] = []
             cached_response_candidate["is_cached"] = True
             self._read_cache_entry_freshness(cached_response_candidate.pop(CACHE_ENTRY_FRESHNESS_KEY, None))
-            # When rolling out schema changes, cached responses may not match the new schema.
-            # Trigger recomputation in this case.
-            try:
-                cached_response = CachedResponse.model_validate(cached_response_candidate, extra="ignore")
-                if raw_results is not None:
-                    self.raw_cached_results_bytes = raw_results
-            except Exception as e:
-                capture_exception(Exception(f"Error parsing cached response: {e}"))
+            stored_scopes = cached_response_candidate.pop(CACHE_ENTRY_READ_SCOPES_KEY, None)
+            legacy_entry = stored_scopes is None
+            read_scopes = self._legacy_cache_entry_read_scopes() if legacy_entry else stored_scopes
+            if read_scopes and self._denies_cached_read_scopes(read_scopes):
+                # Recomputing raises the access error a fresh run of this query gets.
                 cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
+            else:
+                # When rolling out schema changes, cached responses may not match the new schema.
+                # Trigger recomputation in this case.
+                try:
+                    cached_response = CachedResponse.model_validate(cached_response_candidate, extra="ignore")
+                    if raw_results is not None:
+                        self.raw_cached_results_bytes = raw_results
+                except Exception as e:
+                    capture_exception(Exception(f"Error parsing cached response: {e}"))
+                    cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         elif cached_response_candidate is None:
             cached_response = CacheMissResponse(cache_key=cache_manager.cache_key)
         else:
@@ -2451,15 +2468,20 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             )
 
         if isinstance(cached_response, CachedResponse):
+            # Whoever publishes this result, such as an async status or an outer runner's entry, labels it too.
+            record_read_scopes(read_scopes)
             self._fill_action_names(cached_response)
             # Apply current query's custom_name values to cached response
             # (custom_name is excluded from cache key, so cached values may be stale)
             cached_response, custom_names_modified = self.apply_series_custom_names(cached_response)
 
-            if custom_names_modified:
+            # An entry from before read scopes were stored is not re-stored, so it still expires on its own TTL.
+            if custom_names_modified and not legacy_entry:
                 # Update cache with patched response so subsequent requests get the updated names
                 cache_manager.store_result(
-                    response=self._cache_entry_with_freshness(cached_response.model_dump()),
+                    response=self._cache_entry_with_freshness(
+                        self._with_read_scopes(cached_response.model_dump(), read_scopes)
+                    ),
                     target_age=cached_response.cache_target_age,
                 )
 
@@ -3113,6 +3135,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         # ContextVar and contribute to it; the outermost scope is the one that attaches and resets.
         with (
             accumulator_scope() as warnings_accumulator,
+            read_posthog_table_scopes() as read_scopes,
             query_stats_scope(retain_ast=query_scan_flag is not None) as query_stats,
         ):
             if flight is not None:
@@ -3277,7 +3300,9 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
             if cacheable:
                 with self.timings.measure("cache_write"):
                     stored = cache_manager.store_result(
-                        response=self._cache_entry_with_freshness(fresh_response_dict),
+                        response=self._cache_entry_with_freshness(
+                            self._with_read_scopes(fresh_response_dict, read_scopes)
+                        ),
                         # This would be a possible place to decide to not ever keep this cache warm
                         # Example: Not for super quickly calculated insights
                         # Set target_age to None in that case
@@ -3721,6 +3746,27 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         """
         return response
 
+    @staticmethod
+    def _with_read_scopes(response: dict[str, Any], read_scopes: Collection[str]) -> dict[str, Any]:
+        return {**response, CACHE_ENTRY_READ_SCOPES_KEY: sorted(read_scopes)}
+
+    def _legacy_cache_entry_read_scopes(self) -> list[str]:
+        """What an entry stored before read scopes were recorded was computed from, judged from this query.
+
+        Labelling it as reading nothing would let whoever publishes it, such as a notebook run, stamp
+        it ungated for good. An unparseable query could read anything, so it is held to every gated resource.
+        """
+        gated = set(access_controlled_posthog_tables().values())
+        queried = queried_access_controlled_resources(self.query, self.team)
+        return sorted(gated if queried is None else queried & gated)
+
+    def _denies_cached_read_scopes(self, read_scopes: Collection[str]) -> bool:
+        """True when this run's principal may not read a `posthog.*` table the cached result was computed from."""
+        # `user` is typed Optional[User] but shared renders and service tokens pass other principals at runtime.
+        user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
+        denied = denied_posthog_table_scopes(self.team, user, self.user_access_control)
+        return not denied.isdisjoint(read_scopes)
+
     def _read_cache_entry_freshness(self, record: Any) -> None:
         """Restores the decision that `_cache_entry_with_freshness` stored, before the response is parsed."""
 
@@ -4003,9 +4049,13 @@ class AnalyticsQueryRunner(QueryRunner, Generic[AR]):
         # and SharedLinkUser (shared renders); broaden for isinstance.
         user = cast("Optional[User | SyntheticUser | SharedLinkUser]", self.user)
 
-        # Userless runs fail-closed - every access-controlled table is denied.
+        # Userless runs fail closed on every access-controlled table except the `posthog.*` product
+        # tables, which they read. Keying those scopes as restricted would hand a userless warm's rows to
+        # a denied member or shared link, whose key lists the same scopes.
         if user is None:
-            return ["*"] if queried_resources is None else sorted(queried_resources) or None
+            if queried_resources is None:
+                return ["*"]
+            return sorted(queried_resources - set(access_controlled_posthog_tables().values())) or None
 
         # Non-real principals (service tokens, shared-link viewers) are scope-gated on system tables;
         # partition on the readable scopes so a narrower token can't be served a broader principal's

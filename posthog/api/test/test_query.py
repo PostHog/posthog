@@ -49,6 +49,7 @@ from posthog.api.query import (
 )
 from posthog.api.services.query import process_query_dict, process_query_model
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.execute_async import QueryStatusManager, execute_process_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import Product, QueryTags
 from posthog.constants import AvailableFeature
@@ -2147,9 +2148,13 @@ class TestTracingQueryStatusRetrieval(APIBaseTest):
         self.organization_membership.save()
 
     def _retrieve(self, headers: dict[str, str] | None = None, params: str = ""):
-        query_status = QueryStatus(id="q1", team_id=self.team.id, complete=True, labels=["tracing-spans"])
-        with patch("posthog.api.query.get_query_status", return_value=query_status):
-            return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
+        # A plain HogQL read carries no tracing label when enqueued. The worker runs it userless, the way
+        # it runs a project secret key's query, so only what the run read can gate the result.
+        QueryStatusManager("q1", self.team.id).store_query_status(QueryStatus(id="q1", team_id=self.team.id))
+        query_json = {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"}
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            execute_process_query(self.team.id, None, "q1", query_json, LimitContext.QUERY_ASYNC)
+        return self.client.get(f"/api/projects/{self.team.id}/query/q1/{params}", headers=headers or {})
 
     def test_a_span_result_is_not_readable_through_a_share_link(self):
         AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
@@ -2161,6 +2166,48 @@ class TestTracingQueryStatusRetrieval(APIBaseTest):
     def test_a_span_result_is_readable_only_with_tracing_access(self, access_level: str, expected: int):
         AccessControl.objects.create(resource="tracing", team=self.team, access_level=access_level)
         assert self._retrieve().status_code == expected
+
+    @parameterized.expand([(["query:read"], False), (["query:read", "tracing:read"], True)])
+    def test_a_span_query_needs_the_tracing_scope(self, scopes: list[str], allowed: bool):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        with patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"}},
+                format="json",
+                headers={"Authorization": f"Bearer {value}"},
+            )
+        assert (response.status_code == 200) is allowed, response.content
+        if not allowed:
+            assert "posthog.trace_spans" in response.json()["detail"]
+
+    @parameterized.expand([(["query:read"], False), (["query:read", "tracing:read"], True)])
+    def test_an_async_span_query_runs_with_the_keys_tracing_scope(self, scopes: list[str], allowed: bool):
+        AccessControl.objects.create(resource="tracing", team=self.team, access_level="viewer")
+        value = generate_random_token_personal()
+        PersonalAPIKey.objects.create(label="spans", user=self.user, secure_value=hash_key_value(value), scopes=scopes)
+        with (
+            patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/query/",
+                {
+                    "query": {"kind": "HogQLQuery", "query": "select name from posthog.trace_spans"},
+                    "refresh": "force_async",
+                },
+                format="json",
+                headers={"Authorization": f"Bearer {value}"},
+            )
+        assert response.status_code == 202, response.content
+
+        query_status = get_query_status(self.team.id, response.json()["query_status"]["id"])
+
+        assert query_status.complete and query_status.error is not allowed
+        if not allowed:
+            assert "posthog.trace_spans" in (query_status.error_message or "")
 
     @parameterized.expand([(["query:read"], 403), (["query:read", "tracing:read"], 200)])
     def test_a_span_result_needs_the_tracing_scope(self, scopes: list[str], expected: int):

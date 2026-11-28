@@ -5,10 +5,12 @@ import copy
 import time
 import pickle
 import threading
+import contextlib
 import dataclasses
 import pickletools
 from collections import defaultdict
 from collections.abc import Callable, Collection, Iterator, Mapping, Sequence
+from contextvars import ContextVar
 from datetime import UTC, datetime
 from functools import cache, lru_cache
 from types import MappingProxyType
@@ -269,7 +271,8 @@ class HogQLDatabaseSources:
     direct_connection_metadata: dict[str, Any] | None
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional[UserAccessControl]
-    denied_system_table_names: set[str]  # node names under the "system" node to remove during build
+    # Node names to remove during build: bare names under "system", qualified names (`posthog.x`) elsewhere
+    denied_system_table_names: set[str]
     group_types: list[dict[str, Any]]
     mcp_custom_harness_rules: Sequence[CustomHarnessRule]
     saved_queries: list[DataWarehouseSavedQuery]
@@ -734,6 +737,327 @@ def _scoped_system_tables() -> Mapping[str, PostgresTable | ScopedLazyTable]:
 
 
 @cache
+def access_controlled_posthog_tables() -> Mapping[str, APIScopeObject]:
+    """`posthog.<name>` table -> the resource that gates it, for ClickHouse tables holding one product's data.
+
+    Unlike scoped system tables, these only deny a user whose access to the resource is none, and stay
+    readable without a user: product query runners and alerts run without one, and their own API
+    permissions gate the request. Synthetic and shared-link principals read them only when their scopes
+    cover the resource. Same process-static invariant as _scoped_system_tables.
+    """
+    posthog_node = build_database_root_node().children["posthog"]
+    return MappingProxyType(
+        {
+            f"posthog.{name}": access_scope
+            for name, table_node in posthog_node.children.items()
+            if (access_scope := getattr(table_node.table, "access_scope", None)) is not None
+        }
+    )
+
+
+@cache
+def _access_controlled_posthog_table_types() -> Mapping[type, APIScopeObject]:
+    posthog_node = build_database_root_node().children["posthog"]
+    return MappingProxyType(
+        {
+            type(table_node.table): access_scope
+            for table_node in posthog_node.children.values()
+            if (access_scope := getattr(table_node.table, "access_scope", None)) is not None
+        }
+    )
+
+
+# Marks an async query status whose run read a table gated on this resource.
+READ_SCOPE_QUERY_STATUS_LABEL_PREFIX = "read-scope:"
+# On every status a worker that records read scopes completes, so a status without it predates them.
+READ_SCOPES_RECORDED_QUERY_STATUS_LABEL = "read-scopes-recorded"
+
+_read_posthog_table_scopes: ContextVar[set[str] | None] = ContextVar("read_posthog_table_scopes", default=None)
+
+
+@contextlib.contextmanager
+def read_posthog_table_scopes() -> Iterator[set[str]]:
+    """Collects the resources gating every `posthog.*` table that queries resolve inside this scope.
+
+    The set is mutated in place, so reads in nested runners and in threads started with a copied
+    context (run_in_parallel_threads) reach it. A nested scope joins the outer one.
+    """
+    current = _read_posthog_table_scopes.get()
+    if current is not None:
+        yield current
+        return
+    scopes: set[str] = set()
+    token = _read_posthog_table_scopes.set(scopes)
+    try:
+        yield scopes
+    finally:
+        _read_posthog_table_scopes.reset(token)
+
+
+def record_posthog_table_read(table: Table) -> None:
+    """Called where a query references a table, so building the schema or its joins records nothing."""
+    # A cached result is checked against these on read, because its cache key may not show the table.
+    if scope := _access_controlled_posthog_table_types().get(type(table)):
+        record_read_scopes([scope])
+
+
+def record_read_scopes(scopes: Collection[str]) -> None:
+    """Adds scopes to the active collector, such as those a served cached result was computed from."""
+    read_scopes = _read_posthog_table_scopes.get()
+    if read_scopes is not None:
+        read_scopes.update(scopes)
+
+
+def record_posthog_table_scopes(scopes: Collection[str]) -> None:
+    """Records reads of gated resources that reached the query through a stored copy of their rows."""
+    read_scopes = _read_posthog_table_scopes.get()
+    if read_scopes is not None:
+        read_scopes.update(scopes)
+
+
+def materialized_view_read_scopes(table: S3Table, team: Team, lookups: Any = None) -> frozenset[str]:
+    """The resources gating `posthog.*` tables that a materialized view's definition reads, at any depth.
+
+    The materialized copy holds those rows but resolves as a plain S3 table, so it is gated on what its
+    definition reads instead. It fails closed on every gated resource when the walk can't read the definition,
+    or when it or a view it reads changed after the copy was built, since the copy may hold what the old one read.
+    `lookups` comes from `warehouse_lookups` and shares name lookups between the views one query reads.
+    """
+    if table.saved_query_id is None or table.saved_query_sql is None:
+        return frozenset()
+    # Deferred: posthog.schema is heavy, and the walk imports hogql back.
+    from posthog.schema import HogQLQuery  # noqa: PLC0415
+
+    from posthog.hogql_queries.access_controlled_resources import (  # noqa: PLC0415
+        queried_access_controlled_resources,
+        warehouse_lookups,
+    )
+
+    gated_tables = access_controlled_posthog_tables()
+    gated = frozenset(gated_tables.values())
+    catalog = (lookups or warehouse_lookups(team.pk)).for_next_fingerprint()
+    scopes = queried_access_controlled_resources(HogQLQuery(query=table.saved_query_sql), team, _catalog=catalog)
+    if scopes is None:
+        return gated
+    definitions = [table.saved_query_sql]
+    for name in catalog.walked_views:
+        view_query = catalog.view_queries.get(name)
+        if isinstance(view_query, dict) and isinstance(view_query.get("query"), str):
+            definitions.append(view_query["query"])
+    if _reads_tables_the_walk_cannot_name(definitions, catalog.looked_up_names, frozenset(gated_tables), team):
+        return gated
+    if _definition_changed_since_materialized(table.saved_query_id, catalog.looked_up_names, team):
+        return gated
+    return frozenset(scopes & gated)
+
+
+def _reads_tables_the_walk_cannot_name(
+    definitions: Sequence[str], read_names: Collection[str], gated_tables: frozenset[str], team: Team
+) -> bool:
+    """True when a definition may read a table through a field its text doesn't name, which the name walk misses.
+
+    Warehouse joins and saved expressions add fields to a table. A join reaches its target, and that target's own
+    joins, by no name; an expression with a subquery or query tag reads whatever it selects. Names match on their
+    last segment, case-insensitively, so every queryable form of a table (`posthog.events`, `models.x`) matches.
+    """
+    from posthog.hogql.errors import BaseHogQLError  # noqa: PLC0415
+    from posthog.hogql.metadata import TableCollector  # noqa: PLC0415
+    from posthog.hogql.parser import parse_expr, parse_select  # noqa: PLC0415
+    from posthog.hogql.visitor import TraversingVisitor  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    def key(name: str) -> str:
+        return name.rsplit(".", 1)[-1].lower()
+
+    class _ReadFinder(TraversingVisitor):
+        found = False
+
+        def visit_select_query(self, node: ast.SelectQuery) -> None:
+            self.found = True
+
+        def visit_select_set_query(self, node: ast.SelectSetQuery) -> None:
+            self.found = True
+
+        def visit_hogqlx_tag(self, node: ast.HogQLXTag) -> None:
+            self.found = True
+
+    names = {key(name) for name in read_names}
+    for definition in definitions:
+        collector = TableCollector()
+        try:
+            collector.visit(parse_select(definition))
+        except BaseHogQLError:
+            return True
+        names |= {key(name) for name in collector.table_names}
+
+    def selects(expression: str) -> bool:
+        finder = _ReadFinder()
+        try:
+            finder.visit(parse_expr(expression))
+        except BaseHogQLError:
+            return True
+        return finder.found
+
+    joins: dict[str, set[str]] = defaultdict(set)
+    reading_expressions: set[str] = set()
+    for source, target, source_key, target_key in (
+        DataWarehouseJoin.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .values_list("source_table_name", "joining_table_name", "source_table_key", "joining_table_key")
+    ):
+        joins[key(source)].add(key(target))
+        # Join keys are HogQL expressions too, evaluated whenever the joined field is read.
+        if selects(source_key) or selects(target_key):
+            reading_expressions.add(key(source))
+    for table_name, expression in (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .exclude(deleted=True)
+        .values_list("table_name", "expression")
+    ):
+        if selects(expression):
+            reading_expressions.add(key(table_name))
+    if not joins and not reading_expressions:
+        return False
+
+    gated = {key(name) for name in gated_tables}
+    # Built-in tables reach each other through lazy fields such as `events.person`, so a join stored on one
+    # is reachable from all of them.
+    builtin = {key(name) for name in build_database_root_node().children["posthog"].children}
+    reached: set[str] = set()
+    frontier = list(names)
+    while frontier:
+        name = frontier.pop()
+        if name in reached:
+            continue
+        reached.add(name)
+        if name in builtin:
+            frontier.extend(builtin - reached)
+        if name in reading_expressions:
+            return True
+        for target in joins.get(name, ()):
+            if target in gated:
+                return True
+            frontier.append(target)
+    joined = reached - names
+    if not joined:
+        return False
+    # A joined view can read a gated table itself, so it fails closed instead of being walked too.
+    return any(
+        key(name) in joined
+        for name in DataWarehouseSavedQuery.objects.filter(team_id=team.pk)
+        .exclude(deleted=True)
+        .values_list("name", flat=True)
+    )
+
+
+def _virtual_fields_changed_since(built_at: datetime, team: Team) -> bool:
+    """True when a warehouse join or saved expression of the team was changed or removed after `built_at`.
+
+    A build reads the joins and expressions that existed then, which a later walk can no longer see.
+    The join API hard deletes, so its activity log is the only record that a join is gone.
+    """
+    from posthog.models.activity_logging.activity_log import ActivityLog  # noqa: PLC0415
+
+    from products.data_tools.backend.facade.models import DataWarehouseExpression, DataWarehouseJoin  # noqa: PLC0415
+
+    if (
+        ActivityLog.objects.filter(
+            # Saved expressions are stored, and logged, on the project's root team.
+            team_id__in={team.pk, team.parent_team_id or team.pk},
+            scope__in=["DataWarehouseJoin", "DataWarehouseExpression"],
+            created_at__gt=built_at,
+        )
+        .exclude(activity="created")
+        .exists()
+    ):
+        return True
+    if DataWarehouseJoin.objects.filter(team_id=team.pk, deleted_at__gt=built_at).exists():
+        return True
+    return (
+        DataWarehouseExpression.objects.for_team(team.parent_team_id or team.pk, canonical=True)
+        .filter(deleted_at__gt=built_at)
+        .exists()
+    )
+
+
+def _definition_changed_since_materialized(saved_query_id: str, view_names: Collection[str], team: Team) -> bool:
+    """True when the view or a view its definition names was edited, created or deleted after its copy's build began."""
+    from django.db.models import Max  # noqa: PLC0415
+    from django.db.models.functions import Greatest  # noqa: PLC0415
+
+    from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
+        DataModelingJob,
+        DataModelingJobStatus,
+        DataWarehouseSavedQuery,
+    )
+
+    built_at = (
+        DataModelingJob.objects.filter(
+            team_id=team.pk, saved_query_id=saved_query_id, status=DataModelingJobStatus.COMPLETED
+        )
+        .order_by("-last_run_at")
+        .values_list("created_at", flat=True)
+        .first()
+    )
+    root = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, id=saved_query_id)
+        .values_list("query_updated_at", "last_run_at")
+        .first()
+    )
+    if root is None:
+        return True
+    query_updated_at, last_run_at = root
+    built_at = built_at or last_run_at
+    if built_at is None:
+        return True
+    if query_updated_at is not None and query_updated_at > built_at:
+        return True
+    if _virtual_fields_changed_since(built_at, team):
+        return True
+    names = {name.removeprefix("models.") for name in view_names} | set(view_names)
+    if not names:
+        return False
+    # Deleted rows count too: a view removed after the build no longer shows what the copy read through it.
+    latest_upstream_change = (
+        DataWarehouseSavedQuery.objects.filter(team_id=team.pk, name__in=names)
+        .exclude(id=saved_query_id)
+        .aggregate(latest=Max(Greatest("created_at", "query_updated_at", "deleted_at")))["latest"]
+    )
+    return latest_upstream_change is not None and latest_upstream_change > built_at
+
+
+_credential_denied_scopes: ContextVar[frozenset[str]] = ContextVar("credential_denied_scopes", default=frozenset())
+
+
+@contextlib.contextmanager
+def credential_denied_scopes(scopes: Collection[str]) -> Iterator[None]:
+    """Resources whose `posthog.*` tables the request's credential, such as a scoped personal API key, may not
+    read, whatever its user may. Access decisions for a real user made inside this scope deny them too."""
+    token = _credential_denied_scopes.set(frozenset(scopes))
+    try:
+        yield
+    finally:
+        _credential_denied_scopes.reset(token)
+
+
+def current_credential_denied_scopes() -> frozenset[str]:
+    return _credential_denied_scopes.get()
+
+
+def denied_posthog_table_scopes(
+    team: Team,
+    user: Optional[User | SyntheticUser | SharedLinkUser],
+    user_access_control: Optional[UserAccessControl] = None,
+) -> set[str]:
+    """The resources gating `posthog.*` tables that this principal may not read, decided as create_for decides."""
+    # The `posthog.*` tables need no entitlement, so the organization's entitlements are not read.
+    _, denied = _compute_system_table_access_decision(team, user, user_access_control, unentitled=())
+    return {scope for name, scope in access_controlled_posthog_tables().items() if name in denied}
+
+
+@cache
 def _system_table_required_features() -> Mapping[str, str]:
     """Table name -> required AvailableFeature for system tables behind a billing entitlement.
 
@@ -813,6 +1137,11 @@ def _compute_system_table_access_decision(
     # have cannot be granted by a role.
     unentitled = set(unentitled) if unentitled is not None else _unentitled_system_tables(team)
 
+    # The request credential's denials hold for every principal, including a userless worker run it enqueued.
+    credential_denied = {
+        name for name, scope in access_controlled_posthog_tables().items() if scope in _credential_denied_scopes.get()
+    }
+
     # Anonymous or synthetic principal: keep only access-controlled tables its scopes cover (none for shared link / team token).
     if user is None or isinstance(user, SyntheticUser | SharedLinkUser):
         readable_scopes = user.readable_system_table_access_scopes() if user is not None else set()
@@ -821,28 +1150,42 @@ def _compute_system_table_access_decision(
         }
         if user is None:
             denied_by_access_control.difference_update(allowed_system_table_names)
-        return None, unentitled | denied_by_access_control
+        else:
+            # A shared link runs HogQL its creator wrote, so exempting it would let a member denied the
+            # resource read the table through their own share.
+            denied_by_access_control |= {
+                name for name, scope in access_controlled_posthog_tables().items() if scope not in readable_scopes
+            }
+        return None, unentitled | denied_by_access_control | credential_denied
 
     user_access_control = user_access_control or UserAccessControl(user=user, team=team)
 
     org_membership = user_access_control._organization_membership
     if org_membership and org_membership.effective_level >= OrganizationMembership.Level.ADMIN:
-        return user_access_control, unentitled
+        return user_access_control, unentitled | credential_denied
 
     # Resources the user holds object-level grants on despite having no resource-level access. REST
     # serves those routes and narrows the rows to the grants; the printer guard does the same, so the
     # table stays queryable here instead of disappearing (see build_access_control_guard).
     allowlisted_scopes = user_access_control.allowlisted_resource_ids_by_scope
 
-    denied: set[str] = set(unentitled)
-    for name, table in scoped_tables.items():
-        access_scope = cast(APIScopeObject, table.access_scope)
+    # `posthog.*` tables carry no object ids, so an object grant never keeps them.
+    gated_tables = [
+        *(
+            (name, cast(APIScopeObject, table.access_scope), table.access_control_id is not None)
+            for name, table in scoped_tables.items()
+        ),
+        *((name, access_scope, False) for name, access_scope in access_controlled_posthog_tables().items()),
+    ]
+
+    denied: set[str] = unentitled | credential_denied
+    for name, access_scope, narrowable_to_grants in gated_tables:
         access = user_access_control.access_level_for_resource(access_scope)
         if access and access.access_level != NO_ACCESS_LEVEL:
             continue  # User has access, keep it
         # Keep the table only when the guard can actually narrow its rows to the grant, so a table
         # whose ids don't key those grants (resource_level_access_only) still fails closed.
-        if access_scope in allowlisted_scopes and table.access_control_id is not None:
+        if access_scope in allowlisted_scopes and narrowable_to_grants:
             continue
         denied.add(name)
 
@@ -856,7 +1199,8 @@ def system_table_denials(
     *,
     unentitled: Collection[str] | None = None,
 ) -> frozenset[str]:
-    """The bare names of the ``system.*`` tables this user may not read.
+    """The tables this user may not read: bare names for ``system.*`` tables, qualified names
+    (``posthog.trace_spans``) for product tables under ``posthog.``.
 
     Runs the access-control and entitlement checks that ``create_for`` would run, and nothing else,
     so a caller that only needs the answer does not pay for a whole database build. Pass
@@ -1001,6 +1345,10 @@ class Database(BaseModel):
             self._ensure_revenue_views_built()
             return self.tables.has_child(table_name)
         return False
+
+    def denied_posthog_table_scopes(self) -> set[str]:
+        """The resources whose `posthog.*` tables access control removed from this database."""
+        return {scope for name, scope in access_controlled_posthog_tables().items() if name in self._denied_tables}
 
     def is_table_access_denied(self, table_name: str | list[str]) -> bool:
         """True if access control denied this table when the HogQL database was built.
@@ -1474,17 +1822,18 @@ class Database(BaseModel):
         if user_access_control is not None:
             self.user_access_control = user_access_control
 
-        # Record only denials we actually applied, so a database with no "system" node denies nothing.
+        # Record only denials we actually applied, so a database without the namespace node denies nothing.
+        # Bare names live under "system"; qualified ones (`posthog.trace_spans`) name their namespace.
         removed: set[str] = set()
-        if denied_system_table_names:
-            system_node = self.tables.children.get("system")
-            if system_node is not None and hasattr(system_node, "children"):
-                for name in denied_system_table_names:
-                    if name in system_node.children:
-                        del system_node.children[name]
-                        removed.add(name)
+        for name in denied_system_table_names:
+            namespace, _, table_name = name.rpartition(".")
+            namespace = namespace or "system"
+            namespace_node = self.tables.children.get(namespace)
+            if namespace_node is not None and table_name in namespace_node.children:
+                del namespace_node.children[table_name]
+                removed.add(f"{namespace}.{table_name}")
 
-        self._denied_tables = {f"system.{name}" for name in removed}
+        self._denied_tables = removed
 
     def _is_warehouse_table_denied(self, table: DataWarehouseTable) -> bool:
         """

@@ -79,6 +79,26 @@ class TestQueriedAccessControlledResources(BaseTest):
             ("through_subquery", "select * from (select * from system.notebooks)", {"notebook"}),
             ("through_cte_body", "with n as (select 1 from system.notebooks) select * from n", {"notebook"}),
             ("multiple", "select 1 from system.notebooks, system.surveys", {"notebook", "survey"}),
+            ("trace_spans", "select * from posthog.trace_spans", {"tracing"}),
+            (
+                "subquery_in_a_table_function_argument",
+                "select count() as n from numbers((select count() from posthog.trace_spans))",
+                {"tracing"},
+            ),
+            (
+                "subquery_in_a_join_constraint",
+                "select 1 from events e join persons p on e.person_id = p.id "
+                "and e.event in (select name from posthog.trace_spans)",
+                {"tracing"},
+            ),
+            ("placeholder_table", "select * from {table}", None),
+            ("placeholder_join", "select * from events join {table} on 1", None),
+            ("placeholder_outside_from", "select * from events where {filters}", set()),
+            (
+                "query_tag_in_an_expression",
+                "select event from events where event in (<HogQLQuery query='select name from posthog.trace_spans' />)",
+                None,
+            ),
             (
                 "account_email_threads_lazy_join",
                 "select accounts.email_threads.count from system.accounts as accounts",
@@ -90,6 +110,12 @@ class TestQueriedAccessControlledResources(BaseTest):
                 {"account", "ticket"},
             ),
             ("account_non_communication_lazy_join", "select meetings.count from system.accounts", {"account"}),
+            (
+                "account_lazy_join_beside_a_shadowing_cte",
+                "select email_threads.count from system.accounts union all select * from "
+                "(with `system.accounts` as (select 1 as count) select count from `system.accounts`)",
+                {"account", "ticket"},
+            ),
             # Activity-log rows for canvases are limited to the canvases in `system.canvases`, so the
             # rows follow the caller's canvas grants as well as their activity-log access.
             ("activity_logs", "select * from system.activity_logs", {"activity_log", "canvas"}),
@@ -110,27 +136,27 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_tables",
                 "select certification from system.information_schema.tables",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_relationships",
                 "select reasoning from system.information_schema.relationships",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_metrics",
                 "select name from system.information_schema.metrics",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_certifications",
                 "select notes from system.information_schema.certifications",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_relationship_proposals",
                 "select reasoning from system.information_schema.relationship_proposals",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             # The data-quality information_schema tables partition on warehouse object access, which is
             # what their loaders gate on, and their rows are hidden per-object via the caller's denied
@@ -139,17 +165,17 @@ class TestQueriedAccessControlledResources(BaseTest):
             (
                 "information_schema_data_quality_checks",
                 "select config from system.information_schema.data_quality_checks",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_data_quality_check_runs",
                 "select failed_row_count from system.information_schema.data_quality_check_runs",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             (
                 "information_schema_data_quality_health",
                 "select health from system.information_schema.data_quality_health",
-                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view"},
+                {"data_catalog", "external_data_source", "warehouse_table", "warehouse_view", "tracing"},
             ),
             # The plain schema tables expose no catalog-gated data, so they don't partition on it.
             ("information_schema_columns", "select * from system.information_schema.columns", set()),
@@ -210,12 +236,20 @@ class TestQueriedAccessControlledResources(BaseTest):
     def test_accounts_query_communication_fields_require_ticket_access(self, _name, query_kwargs):
         assert queried_access_controlled_resources(AccountsQuery(**query_kwargs), self.team) == {"account", "ticket"}
 
-    def test_structured_query_with_data_warehouse_series(self):
-        query = TrendsQuery(series=[EventsNode(event="$pageview"), self._dw_node()])
+    @parameterized.expand(
+        [
+            ("warehouse_table", "some_dw_table", set()),
+            ("trace_spans", "posthog.trace_spans", {"tracing"}),
+        ]
+    )
+    def test_structured_query_with_data_warehouse_series(self, _name, table_name, extra_scopes):
+        node = self._dw_node().model_copy(update={"table_name": table_name})
+        query = TrendsQuery(series=[EventsNode(event="$pageview"), node])
         assert queried_access_controlled_resources(query, self.team) == {
             "external_data_source",
             "warehouse_table",
             "warehouse_view",
+            *extra_scopes,
         }
 
     def test_nested_data_warehouse_node_is_detected(self):

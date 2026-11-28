@@ -26,6 +26,7 @@ from posthog.schema import (
     ActorsQuery,
     ActorsQueryResponse,
     BounceRatePageViewMode,
+    CachedHogQLQueryResponse,
     CacheMissResponse,
     CurrencyCode,
     DashboardFilter,
@@ -60,12 +61,13 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
-from posthog.hogql.errors import QueryError, ResolutionError
+from posthog.hogql.database.database import Database, read_posthog_table_scopes
+from posthog.hogql.errors import QueryError, ResolutionError, TableAccessDeniedError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.query_stats import get_active, notify_query_started, record
 
 from posthog.api.services.query import _run_query_runner
+from posthog.auth import ProjectSecretAPIKeyUser
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.clickhouse.query_tagging import reset_query_tags, tag_queries, tags_context
@@ -97,6 +99,7 @@ from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.event.new_events_schema import get_events_route
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.organization import OrganizationMembership
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.models.team.team import Team, WeekStartDay
 from posthog.models.team.team_revenue_analytics_config import TeamRevenueAnalyticsConfig
@@ -133,6 +136,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import PropertyAccessLevel
 from products.customer_analytics.backend.facade.constants import DEFAULT_ACTIVITY_EVENT
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.event_definitions.backend.models.property_definition import PropertyDefinition
 from products.product_analytics.backend.facade.queries import TrendsQueryRunner
 from products.revenue_analytics.backend.views.test.data.structure import REVENUE_ANALYTICS_CONFIG_SAMPLE_EVENT
@@ -2173,6 +2177,101 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         key_granted = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
 
         assert key_denied != key_granted
+
+    def test_userless_trace_read_does_not_share_a_denied_members_cache_key(self) -> None:
+        query = {"kind": "HogQLQuery", "query": "select uuid from posthog.trace_spans"}
+        userless_runner = HogQLQueryRunner(query=query, team=self.team, user=None)
+        assert "restricted_resources" not in userless_runner.get_cache_payload()
+
+        self._ac(resource="tracing", access_level="none")
+        key_denied = HogQLQueryRunner(query=query, team=self.team, user=self.user).get_cache_key()
+
+        assert key_denied != userless_runner.get_cache_key()
+
+    @parameterized.expand(
+        [("tracing_none_member",), ("secret_key_without_tracing",), ("share_link",), ("tracing_viewer",)]
+    )
+    def test_cached_trace_read_is_served_only_to_a_tracing_reader(self, kind: str) -> None:
+        query = HogQLQuery(query="select name from posthog.trace_spans")
+        with (
+            mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])),
+            # Stands in for an indirect read the name-based fingerprint misses, so every principal shares one key.
+            mock.patch("posthog.hogql_queries.query_runner.queried_access_controlled_resources", return_value=set()),
+        ):
+            warm = get_query_runner(query, self.team, user=self.user)
+            warm.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            self._ac(resource="tracing", access_level="viewer" if kind == "tracing_viewer" else "none")
+            principal: Any = self.user
+            if kind == "secret_key_without_tracing":
+                key = ProjectSecretAPIKey.objects.create(
+                    team=self.team, label="no tracing", secure_value="sha256$" + "f" * 64, scopes=["query:read"]
+                )
+                principal = ProjectSecretAPIKeyUser(key)
+            elif kind == "share_link":
+                principal = SharedLinkUser(SharingConfiguration.objects.create(team=self.team, enabled=True))
+            runner = get_query_runner(query, self.team, user=principal)
+            assert runner.get_cache_key() == warm.get_cache_key()
+
+            if kind == "tracing_viewer":
+                response = runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+                assert isinstance(response, CachedHogQLQueryResponse) and response.is_cached
+            else:
+                with self.assertRaises(TableAccessDeniedError):
+                    runner.run(ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+
+    @parameterized.expand([("legacy_entry", True, 0), ("marked_entry", False, 1)])
+    def test_custom_name_restore_keeps_a_legacy_entry_on_its_ttl(self, _name, legacy: bool, stores: int) -> None:
+        runner = self._runner(self.user, queried_resources=set())
+        # An entry written before read scopes were stored carries no marker.
+        unmarked = mock.patch.object(QueryRunner, "_with_read_scopes", staticmethod(lambda response, _scopes: response))
+        with unmarked if legacy else nullcontext():
+            runner.run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+        with (
+            mock.patch.object(type(runner), "apply_series_custom_names", side_effect=lambda response: (response, True)),
+            mock.patch.object(QueryCache, "store_result") as store_result,
+        ):
+            assert runner.run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE).is_cached
+
+        assert store_result.call_count == stores
+
+    @parameterized.expand([("marked_entry", False), ("legacy_entry", True)])
+    def test_a_served_trace_hit_labels_whatever_publishes_it(self, _name, legacy: bool) -> None:
+        query = HogQLQuery(query="select name from posthog.trace_spans")
+        # An entry written before read scopes were stored carries no marker.
+        unmarked = mock.patch.object(QueryRunner, "_with_read_scopes", staticmethod(lambda response, _scopes: response))
+        with mock.patch("posthog.hogql.query.sync_execute", return_value=([], [("name", "String")])):
+            with unmarked if legacy else nullcontext():
+                get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+            # A single-flight follower or an outer runner serves the leader's entry without resolving a table.
+            with read_posthog_table_scopes() as read_scopes:
+                response = get_query_runner(query, self.team, user=self.user).run(
+                    ExecutionMode.CACHE_ONLY_NEVER_CALCULATE
+                )
+
+        assert isinstance(response, CachedHogQLQueryResponse) and response.is_cached
+        assert read_scopes == {"tracing"}
+
+    def test_unused_trace_join_does_not_mark_events_results_as_trace_reads(self) -> None:
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="events",
+            source_table_key="properties.$trace_id",
+            joining_table_name="posthog.trace_spans",
+            joining_table_key="trace_id",
+            field_name="trace",
+        )
+        query = HogQLQuery(query="select count() from events")
+        with mock.patch("posthog.hogql.query.sync_execute", return_value=([[0]], [("count()", "UInt64")])):
+            get_query_runner(query, self.team, user=self.user).run(ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+
+            self._ac(resource="tracing", access_level="none")
+            response = get_query_runner(query, self.team, user=self.user).run(
+                ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
+            )
+
+        assert isinstance(response, CachedHogQLQueryResponse) and response.is_cached
 
     @parameterized.expand([(False, False), (True, False), (True, True)])
     def test_default_denied_resource_partitions_cache(self, access_control, unknown_resources):

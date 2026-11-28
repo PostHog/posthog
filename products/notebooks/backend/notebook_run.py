@@ -18,6 +18,7 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.hogql.database.database import current_credential_denied_scopes
 from posthog.hogql.direct_connection import (
     get_direct_connection_source,
     raw_query_uses_organization_grant,
@@ -159,6 +160,7 @@ def _create_notebook_run(
                 trigger=trigger,
                 variables=notebook.variables or [],
                 cell_plan=cell_plan,
+                credential_denied_scopes=sorted(current_credential_denied_scopes()) or None,
             )
     except IntegrityError as e:
         # The partial unique constraint, not a lock: one running row per notebook.

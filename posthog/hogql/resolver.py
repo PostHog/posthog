@@ -13,7 +13,12 @@ from posthog.hogql.base import _T_AST
 from posthog.hogql.compilation import MAX_VIEW_DEPTH, CompilationBudget, bounded_compilation, compilation_budget
 from posthog.hogql.constants import SQL_TARGET_DIALECTS, HogQLDialect
 from posthog.hogql.context import HogQLContext
-from posthog.hogql.database.database import Database
+from posthog.hogql.database.database import (
+    Database,
+    materialized_view_read_scopes,
+    record_posthog_table_read,
+    record_posthog_table_scopes,
+)
 from posthog.hogql.database.direct_clickhouse_table import DirectClickHouseTable
 from posthog.hogql.database.models import (
     DateDatabaseField,
@@ -51,6 +56,7 @@ from posthog.hogql.errors import (
     ResolutionCycleError,
     ResolutionDepthExceededError,
     ResolutionError,
+    TableAccessDeniedError,
 )
 from posthog.hogql.escape_sql import quote_hogql_identifier, safe_identifier
 from posthog.hogql.functions import find_hogql_posthog_function
@@ -1673,6 +1679,9 @@ class Resolver(CloningVisitor):
                     database_table = opaque_table
 
             self._record_read(database_table, ".".join(table_name_chain))
+            record_posthog_table_read(database_table)
+            if isinstance(database_table, S3Table) and database_table.saved_query_id is not None:
+                self._gate_materialized_view(database_table, ".".join(table_name_chain))
 
             if self.dialect == "trino":
                 database_table = lower_trino_table(database_table, self.context)
@@ -3345,6 +3354,29 @@ class Resolver(CloningVisitor):
             self._record_direct_read(database_table.table_id)
         else:
             self._record_direct_read(table_name)
+
+    def _gate_materialized_view(self, table: S3Table, table_name: str) -> None:
+        """Deny a materialized view to whoever is denied a gated table its definition reads.
+
+        The copy resolves as a plain S3 table, so the schema strip that hides the gated table never reaches it.
+        """
+        assert table.saved_query_id is not None
+        scopes = self.context.materialized_view_read_scopes.get(table.saved_query_id)
+        if scopes is None:
+            from posthog.models import Team  # noqa: PLC0415
+
+            team = self.context.team or Team.objects.get(id=self.context.team_id)
+            if self.context.materialized_view_lookups is None:
+                from posthog.hogql_queries.access_controlled_resources import warehouse_lookups  # noqa: PLC0415
+
+                self.context.materialized_view_lookups = warehouse_lookups(team.pk)
+            scopes = materialized_view_read_scopes(table, team, self.context.materialized_view_lookups)
+            self.context.materialized_view_read_scopes[table.saved_query_id] = scopes
+        if not scopes:
+            return
+        if self.database is not None and not scopes.isdisjoint(self.database.denied_posthog_table_scopes()):
+            raise TableAccessDeniedError(table_name)
+        record_posthog_table_scopes(scopes)
 
     def _record_saved_query_read(self, saved_query_id: str, *, is_user_view: bool) -> None:
         self.context.referenced_saved_query_ids.add(saved_query_id)

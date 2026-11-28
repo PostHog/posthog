@@ -21,7 +21,7 @@ from django.utils import timezone
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.hogql.database.database import Database, system_table_denials
+from posthog.hogql.database.database import Database, denied_posthog_table_scopes, system_table_denials
 from posthog.hogql.database.schema.information_schema import references_denied_table
 
 from posthog.dataclasses import frozen
@@ -217,7 +217,9 @@ def _refine(metric: Metric, fields: dict) -> None:
 
 def _denied_tables(team: Team, user: User, user_access_control: UserAccessControl) -> set[str]:
     if user_access_control.is_organization_admin:
-        return {f"system.{name}" for name in system_table_denials(team, user, user_access_control)}
+        return {
+            name if "." in name else f"system.{name}" for name in system_table_denials(team, user, user_access_control)
+        }
     return Database.create_for(
         team=team, user=user, user_access_control=user_access_control, trigger=DatabaseBuildTrigger.METRIC_ACCESS
     )._denied_tables
@@ -236,7 +238,9 @@ def cached_denied_tables(
     referenced_tables_by_metric: dict[str, list[str]],
 ) -> set[str]:
     level = "admin" if user_access_control.is_organization_admin else "member"
-    key = f"data_catalog:denied_tables_for_metrics:{team.id}:{user.id}:{level}"
+    # The level alone misses a product grant change, such as tracing revoked, so those decisions key it too.
+    product_denials = ",".join(sorted(denied_posthog_table_scopes(team, user, user_access_control)))
+    key = f"data_catalog:denied_tables_for_metrics:{team.id}:{user.id}:{level}:{product_denials}"
     cached = get_safe_cache(key)
     if cached is not None and _already_judged(cached["referenced_tables_by_metric"], referenced_tables_by_metric):
         return set(cached["denied"])

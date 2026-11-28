@@ -8,6 +8,10 @@ from parameterized import parameterized
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.query_tagging import tag_queries
 from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
+from posthog.constants import AvailableFeature
+from posthog.models import OrganizationMembership
+
+from products.access_control.backend.models.access_control import AccessControl
 
 DATE_FROM = "2026-06-02T07:00:00Z"
 DATE_TO = "2026-06-02T09:00:00Z"
@@ -108,6 +112,34 @@ class TestFlatSpanQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertTrue(all(r["service_name"] == CHILD_SVC for r in results))
         # Every returned row matched the filter.
         self.assertTrue(all(r["matched_filter"] for r in results))
+
+    @parameterized.expand(
+        [
+            (
+                "tracing_spans_api",
+                "/api/projects/{team_id}/tracing/spans/query/",
+                {"query": {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "flatSpans": True}},
+            ),
+            (
+                "hogql",
+                "/api/environments/{team_id}/query/",
+                {"query": {"kind": "HogQLQuery", "query": "select uuid from posthog.trace_spans"}},
+            ),
+        ]
+    )
+    def test_tracing_viewer_reads_spans(self, _name, url, body):
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        AccessControl.objects.create(team=self.team, resource="tracing", access_level="viewer")
+
+        res = self.client.post(url.format(team_id=self.team.id), body, format="json")
+
+        self.assertEqual(res.status_code, 200, res.content)
+        self.assertEqual(len(res.json()["results"]), 6)
 
     def test_default_traces_view_hides_child_only_match(self):
         # The bug this fixes: with the default (Traces) view, a child-only attribute filter matches no

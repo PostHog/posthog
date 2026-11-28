@@ -23,6 +23,7 @@ from posthog.dataclasses import frozen
 from products.notebooks.backend.facade.contracts import NotebookCellLimitExceeded
 from products.notebooks.backend.models import NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals
+from products.notebooks.backend.sql_v2_direct import stored_run_read_scopes
 from products.notebooks.backend.sql_v2_references import _TableReferenceCollector, resolve_sql_v2_references
 from products.notebooks.backend.sql_v2_variables import (
     NotebookVariable,
@@ -367,6 +368,9 @@ def annotate_run_state(
                 row_count=envelope.get("row_count"),
                 columns=envelope.get("columns"),
                 error=latest.error or envelope.get("error") or None,
+                # Not part of the response: the view reads it to decide whether this caller may
+                # see the metadata and error, which derive from the rows the run read.
+                read_scopes=stored_run_read_scopes(latest, notebook.team),
             )
         if latest.status == NotebookNodeRun.Status.RUNNING:
             cell.status = "running"
