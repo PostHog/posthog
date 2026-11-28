@@ -46,6 +46,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     FLAG_DEFINITIONS_V2_CACHE_TYPE,
     FLAG_DEFINITIONS_V2_HYPERCACHE_MANAGEMENT_CONFIG,
     flag_definitions_v2_hypercache,
+    repair_missing_flag_definitions_v2_entries,
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
 )
@@ -640,6 +641,70 @@ def maintain_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
             refreshed=refreshed.successful,
             refresh_failures=refreshed.failed,
             stale_entries_removed=removed_count,
+        )
+    finally:
+        django_cache.delete(lock_key)
+
+
+# Both limits stay below the 5-minute schedule, and the lock expires with the hard limit,
+# so a run that dies cannot block the next one.
+@shared_task(
+    bind=True,
+    base=PushGatewayTask,
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    soft_time_limit=4 * 60,
+    time_limit=4 * 60 + 30,
+)
+def repair_missing_flag_definitions_v2_cache_entries(self: PushGatewayTask) -> None:
+    """
+    Rebuild the flag definitions v2 entries that Redis lost. Runs every 5 minutes.
+
+    The self-heal queue only hears about legacy misses, so without this a missing v2 entry
+    waits for the hourly upkeep.
+    """
+    lock_key = "posthog:flag_definitions_v2_miss_repair:lock"
+    if not django_cache.add(lock_key, "locked", timeout=self.time_limit):
+        logger.info("Skipping flag definitions v2 miss repair - already running")
+        return
+
+    try:
+        # Created after the lock check, so a skipped run pushes no counts rather than zeros.
+        missing_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_missing_count",
+            "Number of flag definitions v2 entries the run found missing from the primary tier",
+            registry=self.metrics_registry,
+        )
+        repaired_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_repaired_count",
+            "Number of missing flag definitions v2 entries rebuilt",
+            registry=self.metrics_registry,
+        )
+        failed_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_failed_count",
+            "Number of missing flag definitions v2 entries that failed to rebuild; a failed rebuild does not fail the run",
+            registry=self.metrics_registry,
+        )
+        unscanned_gauge = Gauge(
+            "posthog_flag_definitions_v2_miss_repair_unscanned_count",
+            "Number of teams holding a live config version 2 flag that the run did not check before its deadline",
+            registry=self.metrics_registry,
+        )
+
+        result = repair_missing_flag_definitions_v2_entries(stop_time=time.monotonic() + self.soft_time_limit / 2)
+
+        missing_gauge.set(result.missing)
+        repaired_gauge.set(result.repaired)
+        failed_gauge.set(result.failed)
+        unscanned_gauge.set(result.holders - result.scanned)
+        logger.info(
+            "Completed flag definitions v2 miss repair",
+            holders=result.holders,
+            scanned=result.scanned,
+            missing=result.missing,
+            repaired=result.repaired,
+            failed=result.failed,
+            skipped_by_cap=result.skipped_by_cap,
         )
     finally:
         django_cache.delete(lock_key)

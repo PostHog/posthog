@@ -7,7 +7,7 @@ from typing import Any
 
 import pytest
 from posthog.test.base import BaseTest
-from unittest.mock import call, patch
+from unittest.mock import MagicMock, call, patch
 
 from django.core.cache import (
     cache as django_cache,
@@ -15,7 +15,7 @@ from django.core.cache import (
 )
 from django.core.cache.backends.locmem import LocMemCache
 from django.db.models.signals import post_init
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 
 from celery.exceptions import SoftTimeLimitExceeded
 from jsonschema import Draft202012Validator
@@ -33,6 +33,9 @@ from posthog.redis import get_client
 from posthog.storage import cache_expiry_manager, object_storage
 from posthog.storage.hypercache import HyperCache
 from posthog.storage.hypercache_verifier import TeamBatchFetchError, VerificationResult, verify_and_fix_all_teams
+from posthog.tasks.scheduled import setup_periodic_tasks
+from posthog.tasks.test.utils import PushGatewayTaskTestMixin
+from posthog.tasks.utils import CeleryQueue
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.experiments.backend.facade.testing import create_experiment
@@ -48,6 +51,7 @@ from products.feature_flags.backend.local_evaluation_v2 import (
     _build_flag_definitions_v2_batch,
     _build_flag_definitions_v2_hypercache,
     flag_definitions_v2_hypercache,
+    repair_missing_flag_definitions_v2_entries,
     update_flag_definitions_v2_cache,
     verify_team_flag_definitions_v2,
 )
@@ -56,6 +60,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.tasks import (
     clear_team_definitions_cache,
     maintain_flag_definitions_v2_cache_entries,
+    repair_missing_flag_definitions_v2_cache_entries,
     update_team_flags_cache,
 )
 from products.surveys.backend.models import Survey
@@ -745,3 +750,210 @@ class TestDefinitionsV2Upkeep(DefinitionsV2TestCase):
         maintain_flag_definitions_v2_cache_entries()
 
         assert _stored(V2, self.team) == ABSENT
+
+
+class TestDefinitionsV2MissRepair(PushGatewayTaskTestMixin, DefinitionsV2TestCase):
+    LOCK_KEY = "posthog:flag_definitions_v2_miss_repair:lock"
+
+    def _pushed_counts(self) -> dict[str, float | None]:
+        return {
+            name: self.registry.get_sample_value(f"posthog_flag_definitions_v2_miss_repair_{name}_count")
+            for name in ("missing", "repaired", "failed", "unscanned")
+        }
+
+    def _fail_writes_for(self, failing: Team) -> Any:
+        write = V2.set_cache_value
+
+        def fail_for_one_team(team: Team, *args: Any, **kwargs: Any) -> int | None:
+            if team.id == failing.id:
+                raise ConnectionError("redis down")
+            return write(team, *args, **kwargs)
+
+        return patch.object(V2, "set_cache_value", side_effect=fail_for_one_team)
+
+    def test_a_missing_entry_is_rebuilt(self) -> None:
+        self._create_v2_flags()
+
+        with capture_logs() as logs:
+            repair_missing_flag_definitions_v2_cache_entries()
+
+        assert _keys(_body(V2, self.team)) == ["v2-boolean", "v2-experiment", "v2-inactive"]
+        assert _tracked_score(self.team) is not None
+        completed = next(log for log in logs if log["event"] == "Completed flag definitions v2 miss repair")
+        counts = {key: completed[key] for key in ("holders", "missing", "repaired", "failed")}
+        assert counts == {"holders": 1, "missing": 1, "repaired": 1, "failed": 0}
+        assert (completed["scanned"], completed["skipped_by_cap"]) == (1, 0)
+        assert django_cache.get(self.LOCK_KEY) is None
+
+    def test_a_present_entry_is_not_rewritten_and_its_payload_is_not_read(self) -> None:
+        self._create_v2_flags()
+        self._rebuild()
+        before = _stored(V2, self.team)
+
+        with (
+            self.assertNumQueries(1),
+            patch.object(V2, "set_cache_value") as write,
+            patch.object(V2.cache_client, "get") as read,
+            patch.object(V2.cache_client, "get_many") as read_many,
+        ):
+            result = repair_missing_flag_definitions_v2_entries()
+
+        write.assert_not_called()
+        read.assert_not_called()
+        read_many.assert_not_called()
+        assert (result.holders, result.missing, result.repaired) == (1, 0, 0)
+        assert _stored(V2, self.team) == before
+
+    def test_teams_without_a_live_v2_flag_are_not_touched(self) -> None:
+        self._create_v2_flags()
+        legacy_only = self._other_team("Legacy only")
+        _create_flag(legacy_only, "alpha", V1_FILTERS)
+        deleted_only = self._other_team("Deleted v2 only")
+        _create_flag(deleted_only, "v2-deleted", BOOLEAN_V2, deleted=True)
+
+        with (
+            patch.object(V2.cache_client, "has_key", wraps=V2.cache_client.has_key) as has_key,
+            patch(f"{MODULE}.update_flag_definitions_v2_cache", wraps=update_flag_definitions_v2_cache) as update,
+        ):
+            result = repair_missing_flag_definitions_v2_entries()
+
+        assert has_key.call_args_list == [call(V2.get_cache_key(self.team.id))]
+        assert update.call_args_list == [call(self.team.id)]
+        assert (result.holders, result.repaired) == (1, 1)
+        assert _stored(V2, legacy_only) == ABSENT
+        assert _stored(V2, deleted_only) == ABSENT
+
+    def test_a_payload_whose_etag_remains_is_rebuilt(self) -> None:
+        self._create_v2_flags()
+        self._rebuild()
+        before = _stored(V2, self.team)
+        V2.cache_client.delete(V2.get_cache_key(self.team))
+        assert _stored(V2, self.team) == _StoredEntry(text=None, etag=before.etag)
+
+        result = repair_missing_flag_definitions_v2_entries()
+
+        assert (result.missing, result.repaired) == (1, 1)
+        assert _stored(V2, self.team) == before
+
+    def test_a_failed_repair_does_not_stop_the_others(self) -> None:
+        _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        other = self._other_team()
+        _create_flag(other, "v2-other", BOOLEAN_V2)
+
+        with self._fail_writes_for(self.team):
+            result = repair_missing_flag_definitions_v2_entries()
+
+        assert (result.missing, result.repaired, result.failed) == (2, 1, 1)
+        assert _stored(V2, self.team) == ABSENT
+        assert _keys(_body(V2, other)) == ["v2-other"]
+
+    def test_the_task_pushes_the_counts_of_its_run(self) -> None:
+        teams = [self.team, self._other_team("Second"), self._other_team("Third"), self._other_team("Present")]
+        for team in teams:
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+        self._rebuild(teams[-1])
+
+        with self._fail_writes_for(self.team):
+            repair_missing_flag_definitions_v2_cache_entries()
+
+        assert self._pushed_counts() == {"missing": 3, "repaired": 2, "failed": 1, "unscanned": 0}
+
+    def test_the_task_pushes_the_teams_it_did_not_check(self) -> None:
+        for team in (self.team, self._other_team()):
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+
+        with patch(f"{MODULE}.time", wraps=time) as clock:
+            clock.monotonic.return_value = float("inf")
+            repair_missing_flag_definitions_v2_cache_entries()
+
+        assert self._pushed_counts() == {"missing": 0, "repaired": 0, "failed": 0, "unscanned": 2}
+
+    def test_the_cap_leaves_the_other_teams_for_the_next_run(self) -> None:
+        teams = [self.team, self._other_team("Second"), self._other_team("Third"), self._other_team("Fourth")]
+        for team in teams:
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+
+        first = repair_missing_flag_definitions_v2_entries(limit=2)
+
+        assert (first.scanned, first.missing, first.repaired, first.skipped_by_cap) == (4, 4, 2, 2)
+        assert sum(_stored(V2, team) != ABSENT for team in teams) == 2
+
+        second = repair_missing_flag_definitions_v2_entries(limit=2)
+
+        assert (second.missing, second.repaired, second.skipped_by_cap) == (2, 2, 0)
+        assert all(_stored(V2, team) != ABSENT for team in teams)
+
+    def test_failing_teams_do_not_hold_the_cap_on_every_run(self) -> None:
+        _create_flag(self.team, "v2-boolean", BOOLEAN_V2)
+        other = self._other_team()
+        _create_flag(other, "v2-other", BOOLEAN_V2)
+
+        with self._fail_writes_for(self.team):
+            # Each run tries one of the two teams at random, so 40 runs all missing the other one is a 1 in 2^40 chance.
+            for _ in range(40):
+                if repair_missing_flag_definitions_v2_entries(limit=1).repaired:
+                    break
+
+        assert _keys(_body(V2, other)) == ["v2-other"]
+        assert _stored(V2, self.team) == ABSENT
+
+    def test_the_deadline_also_stops_the_presence_checks(self) -> None:
+        teams = [self.team, self._other_team("Second"), self._other_team("Third")]
+        for team in teams:
+            _create_flag(team, "v2-boolean", BOOLEAN_V2)
+        now = [0.0]
+        has_key = V2.cache_client.has_key
+
+        def slow_has_key(*args: Any, **kwargs: Any) -> bool:
+            now[0] += 1
+            return has_key(*args, **kwargs)
+
+        with (
+            patch(f"{MODULE}.time", wraps=time) as clock,
+            patch.object(V2.cache_client, "has_key", side_effect=slow_has_key),
+        ):
+            clock.monotonic.side_effect = lambda: now[0]
+            result = repair_missing_flag_definitions_v2_entries(stop_time=1.5)
+
+        assert (result.holders, result.scanned, result.missing, result.repaired) == (3, 2, 2, 2)
+        assert sum(_stored(V2, team) == ABSENT for team in teams) == 1
+
+    def test_the_task_skips_while_another_run_holds_its_lock(self) -> None:
+        self._create_v2_flags()
+        django_cache.add(self.LOCK_KEY, "locked", timeout=60)
+        self.addCleanup(django_cache.delete, self.LOCK_KEY)
+
+        repair_missing_flag_definitions_v2_cache_entries()
+
+        assert _stored(V2, self.team) == ABSENT
+        assert self._pushed_counts() == {"missing": None, "repaired": None, "failed": None, "unscanned": None}
+
+    def test_the_hourly_upkeep_lock_does_not_block_the_repair(self) -> None:
+        self._create_v2_flags()
+        upkeep_lock_key = "posthog:flag_definitions_v2_cache_upkeep:lock"
+        django_cache.add(upkeep_lock_key, "locked", timeout=60)
+        self.addCleanup(django_cache.delete, upkeep_lock_key)
+
+        repair_missing_flag_definitions_v2_cache_entries()
+
+        assert _stored(V2, self.team) != ABSENT
+
+
+class TestDefinitionsV2MissRepairSchedule(SimpleTestCase):
+    def test_the_repair_runs_every_5_minutes_on_the_flags_queue_and_ends_within_its_interval(self) -> None:
+        sender = MagicMock()
+        setup_periodic_tasks(sender)
+        calls = [
+            entry
+            for entry in sender.add_periodic_task.call_args_list
+            if entry.kwargs.get("name") == "repair missing flag definitions v2 cache entries"
+        ]
+
+        assert len(calls) == 1
+        schedule, signature = calls[0].args
+        assert schedule.minute == set(range(2, 60, 5))
+        assert calls[0].kwargs["expires"] == 5 * 60
+        assert signature.task == repair_missing_flag_definitions_v2_cache_entries.name
+        task = repair_missing_flag_definitions_v2_cache_entries
+        assert task.queue == CeleryQueue.FEATURE_FLAGS.value
+        assert task.soft_time_limit < task.time_limit < 5 * 60

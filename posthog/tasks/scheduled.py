@@ -124,6 +124,7 @@ from products.feature_flags.backend.tasks import (
     maintain_flag_definitions_v2_cache_entries,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
+    repair_missing_flag_definitions_v2_cache_entries,
     report_django_local_evaluation_usage_task,
     sync_cross_region_flags_task,
 )
@@ -579,6 +580,16 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         maintain_flag_definitions_v2_cache_entries.s(),
         name="maintain flag definitions v2 cache entries",
         expires_seconds=60 * 60,
+    )
+
+    # Flag definitions v2 miss repair - every 5 minutes, off the hourly upkeep's minute 5.
+    # A missing v2 entry is invisible to the self-heal queue below, which only hears about legacy misses.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="2-59/5"),
+        repair_missing_flag_definitions_v2_cache_entries.s(),
+        name="repair missing flag definitions v2 cache entries",
+        expires_seconds=5 * 60,
     )
 
     # Flag definitions self-heal - every minute. Drains the queue the Rust
