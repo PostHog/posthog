@@ -249,11 +249,21 @@ class TestHistoryAccessRules(WarehouseAccessControlTestMixin):
 
     @parameterized.expand(
         [
-            ("turning_history_off", "consolidated", False),
-            ("an_editor_choosing_the_same_mode", "both", True),
+            ("turning_history_off", "consolidated", False, False),
+            ("an_editor_choosing_the_same_mode", "both", True, False),
+            # A webhook schema keeps history only when its source declares events, so the check needs the source.
+            ("an_editor_saving_a_webhook_table", "both", True, True),
         ]
     )
-    def test_only_turning_history_off_withdraws_a_waiting_copy(self, case: str, mode: str, kept: bool) -> None:
+    def test_only_turning_history_off_withdraws_a_waiting_copy(
+        self, case: str, mode: str, kept: bool, webhook: bool
+    ) -> None:
+        if webhook:
+            self.source.source_type = "Stripe"
+            self.source.save()
+            self.schema.name = "Invoice"
+            self.schema.sync_type = ExternalDataSchema.SyncType.WEBHOOK
+            self.schema.save()
         request_access_rules_copy(self.schema, self.user)
         self._create_access_control(self.editor_user, resource_id=str(self.table.id), access_level="editor")
         self.client.force_login(self.user if case == "turning_history_off" else self.editor_user)

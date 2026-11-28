@@ -2421,7 +2421,10 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             validated_data["sync_type_config"].update({"reset_pipeline": True})
 
         resulting_keeps_history = ExternalDataSchema(
-            sync_type=validated_data.get("sync_type", instance.sync_type), sync_type_config=instance.sync_type_config
+            name=instance.name,
+            source=instance.source,
+            sync_type=validated_data.get("sync_type", instance.sync_type),
+            sync_type_config=instance.sync_type_config,
         ).keeps_history
         if copy_access_rules_to_history and request is not None:
             stage_access_rules_copy(instance, cast(User, request.user), keeps_history=resulting_keeps_history)
@@ -2649,6 +2652,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             return None
         require_history_table_editor(self.context.get("request"), self.context.get("view"), table)
         resulting_keeps_history = ExternalDataSchema(
+            name=instance.name,
+            source=instance.source,
             sync_type=validated_data.get("sync_type", instance.sync_type),
             sync_type_config=validated_data.get("sync_type_config", instance.sync_type_config) or {},
         ).keeps_history

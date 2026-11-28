@@ -72,6 +72,7 @@ CHUNK_TARGET_BYTES = 512 * 1024 * 1024
 # Rows per scanned batch, so one decoded batch of wide rows stays small next to the call budget.
 _SCAN_BATCH_ROWS = 16_384
 _MAX_OPEN_CHUNK_FILES = 256
+_MAX_EVENT_ORDER_CHUNKS = 1024
 # deltalite's source guard also counts its copies of the key, order and tie-break columns (about twice their
 # size) and a key-map entry plus two row indexes per row.
 _INDEX_BYTES_PER_ROW = 48 + 2 * 4
@@ -80,6 +81,10 @@ _SUMMED_STATS = (
     "rows_deduped",
     "rows_reread",
     "rows_backwards",
+    "rows_late",
+    "versions_split",
+    "rows_redelivered",
+    "rows_order_mismatch",
     "versions_opened",
     "versions_closed",
     "chain_rows_closed",
@@ -102,6 +107,18 @@ class _SpillOutOfDisk(Exception):
 
 
 @frozen
+class EventOrder:
+    """Orders versions by event columns instead of `valid_from`, for rows that can arrive late or twice.
+
+    A late row splits the version that covers its time, and a row whose `dedupe_column` value the key
+    already holds is dropped (deltalite's `late_rows="insert"`).
+    """
+
+    order_columns: tuple[str, ...]
+    dedupe_column: str
+
+
+@frozen
 class HistoryFinalizeResult:
     staged_rows: int
     calls: int
@@ -109,6 +126,10 @@ class HistoryFinalizeResult:
     rows_deduped: int = 0
     rows_reread: int = 0
     rows_backwards: int = 0
+    rows_late: int = 0
+    versions_split: int = 0
+    rows_redelivered: int = 0
+    rows_order_mismatch: int = 0
     versions_opened: int = 0
     versions_closed: int = 0
     chain_rows_closed: int = 0
@@ -185,6 +206,7 @@ async def finalize(
     key_columns: Sequence[str],
     naming: HistoryNaming,
     commit_metadata: dict[str, str] | None = None,
+    event_order: EventOrder | None = None,
     max_call_bytes: int = MAX_CALL_BYTES,
     chunk_target_bytes: int = CHUNK_TARGET_BYTES,
 ) -> HistoryFinalizeResult | None:
@@ -216,7 +238,18 @@ async def finalize(
     staging_dataset = staging_table.to_pyarrow_dataset()
     # The batch tags are only needed for the cleanup, so they never reach the upsert.
     columns = [name for name in staging_dataset.schema.names if name != STAGED_BATCH_COLUMN]
-    narrow_columns = list(dict.fromkeys([*key_columns, naming.valid_from, STAGED_ROW_COLUMN]))
+    order_columns = list(event_order.order_columns) if event_order is not None else [naming.valid_from]
+    narrow_columns = list(
+        dict.fromkeys(
+            [
+                *key_columns,
+                naming.valid_from,
+                *order_columns,
+                *([event_order.dedupe_column] if event_order is not None else []),
+                STAGED_ROW_COLUMN,
+            ]
+        )
+    )
     call_bytes, batch_tags = await asyncio.to_thread(_measure, staging_dataset, columns, narrow_columns)
     # One handle for every chunk, so each call does not load the table's log and checkpoint again.
     handle = await asyncio.to_thread(_open_deltalite, await table.get_table_uri(), table.get_storage_options())
@@ -236,56 +269,73 @@ async def finalize(
             naming=naming,
             partition_column=partition_column,
             commit_metadata=commit_metadata if last else None,
+            event_order=event_order,
             chunk=calls,
             chunks=chunks,
         )
         staged_rows += rows
         calls += 1
         for name in _SUMMED_STATS:
-            totals[name] += int(getattr(stats, name))
+            totals[name] += int(getattr(stats, name, 0))
 
-    with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
-        if call_bytes <= max_call_bytes:
-            await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
-        else:
-            chunks = math.ceil(call_bytes / chunk_target_bytes)
-            spill_directory = Path(directory)
-            per_pass = max(1, min(_MAX_OPEN_CHUNK_FILES, _free_bytes(spill_directory) // 2 // chunk_target_bytes))
-            first = 0
-            while first < chunks:
-                buckets = range(first, min(chunks, first + per_pass))
-                # A chunk can be far above the target, and other spills share the disk, so the pass watches
-                # the free disk itself and stops at half of what was free when it started.
-                floor = _free_bytes(spill_directory) // 2
-                try:
-                    spilled = await asyncio.to_thread(
-                        _spill_chunks,
-                        handle,
-                        history_table.schema(),
-                        staging_dataset,
-                        columns,
-                        key_columns,
-                        narrow_columns,
-                        chunks,
-                        buckets,
-                        spill_directory,
-                        floor,
-                    )
-                except _SpillOutOfDisk:
-                    for path in spill_directory.iterdir():
-                        path.unlink()
-                    if len(buckets) == 1:
-                        raise HistoryChunkTooLargeError(
-                            f"{table.resource_name}: a key chunk of this sync needs more than half the free "
-                            f"local disk ({floor} bytes)"
+    async def _apply_in(chunks: int) -> None:
+        nonlocal staged_rows
+        staged_rows = 0
+        with tempfile.TemporaryDirectory(prefix="history-finalize-") as directory:
+            if chunks == 1:
+                await _apply(functools.partial(_read_staged, staging_dataset, columns), call_bytes, 1, last=True)
+            else:
+                spill_directory = Path(directory)
+                per_pass = max(1, min(_MAX_OPEN_CHUNK_FILES, _free_bytes(spill_directory) // 2 // chunk_target_bytes))
+                first = 0
+                while first < chunks:
+                    buckets = range(first, min(chunks, first + per_pass))
+                    # A chunk can be far above the target, and other spills share the disk, so the pass watches
+                    # the free disk itself and stops at half of what was free when it started.
+                    floor = _free_bytes(spill_directory) // 2
+                    try:
+                        spilled = await asyncio.to_thread(
+                            _spill_chunks,
+                            handle,
+                            history_table.schema(),
+                            staging_dataset,
+                            columns,
+                            key_columns,
+                            narrow_columns,
+                            chunks,
+                            buckets,
+                            spill_directory,
+                            floor,
                         )
-                    per_pass = len(buckets) // 2
-                    continue
-                for index, (path, footprint) in enumerate(spilled):
-                    last = buckets.stop == chunks and index == len(spilled) - 1
-                    await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
-                    path.unlink()
-                first = buckets.stop
+                    except _SpillOutOfDisk:
+                        for path in spill_directory.iterdir():
+                            path.unlink()
+                        if len(buckets) == 1:
+                            raise HistoryChunkTooLargeError(
+                                f"{table.resource_name}: a key chunk of this sync needs more than half the free "
+                                f"local disk ({floor} bytes)"
+                            )
+                        per_pass = len(buckets) // 2
+                        continue
+                    for index, (path, footprint) in enumerate(spilled):
+                        last = buckets.stop == chunks and index == len(spilled) - 1
+                        await _apply(functools.partial(_read_chunk, path), footprint, chunks, last=last)
+                        path.unlink()
+                    first = buckets.stop
+
+    import deltalite  # noqa: PLC0415 - keeps deltalite off the import path of processes that never write with it
+
+    chunks = 1 if call_bytes <= max_call_bytes else math.ceil(call_bytes / chunk_target_bytes)
+    while True:
+        try:
+            await _apply_in(chunks)
+            break
+        except deltalite.DeltaLiteSourceTooLargeError:
+            # With `event_order` a call also holds the versions its rows touch, which the staged size leaves out.
+            # A chunk that already committed applies nothing again.
+            if event_order is None or chunks >= _MAX_EVENT_ORDER_CHUNKS:
+                raise
+            chunks *= 2
 
     # Only after every chunk committed: a crash before this point leaves the rows staged for the re-run.
     await DeltaWriter(staging).delete_where(STAGED_BATCH_COLUMN, batch_tags)
@@ -441,6 +491,7 @@ async def _history_upsert(
     naming: HistoryNaming,
     partition_column: str,
     commit_metadata: dict[str, str] | None,
+    event_order: EventOrder | None,
     chunk: int,
     chunks: int,
 ) -> tuple[Any, int]:
@@ -451,11 +502,15 @@ async def _history_upsert(
     async with get_governor().admit(source_bytes=2 * footprint, n_partitions=1) as adm:
         data = align_incoming_decimals_to_delta(await asyncio.to_thread(load), history_table.schema())
 
+        event_kwargs = (
+            {"late_rows": "insert", "dedupe_column": event_order.dedupe_column} if event_order is not None else {}
+        )
+
         def _upsert() -> Any:
             return handle.history_upsert(
                 data,
                 list(key_columns),
-                naming.valid_from,
+                list(event_order.order_columns) if event_order is not None else naming.valid_from,
                 naming.valid_from,
                 naming.valid_to,
                 partition_column,
@@ -463,6 +518,7 @@ async def _history_upsert(
                 STAGED_ROW_COLUMN,
                 commit_metadata=commit_metadata,
                 max_row_group_bytes=max_row_group_bytes if max_row_group_bytes > 0 else None,
+                **event_kwargs,
                 **adm.upsert_kwargs,
             )
 

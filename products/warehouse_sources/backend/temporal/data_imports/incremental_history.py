@@ -43,6 +43,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.e
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import normalize_column_name
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta import history_upsert
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.history_upsert import (
+    EventOrder,
     HistoryFinalizeResult,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import DeltaTableRef
@@ -98,30 +99,11 @@ def attach_history_lanes(
             )
         logger.warning("incremental_history_lane_skipped", schema_id=str(schema.id), reason="flag_off")
         return
-    if not includes_the_warehouse(schema.team_id, destination_ids):
-        raise IncrementalHistoryUnavailableError(
-            f"{schema.name} keeps a history table, which lives in the PostHog warehouse, but it doesn't sync there"
-        )
-    if history_only and external_destination_ids_for(schema.team_id, destination_ids):
-        # The run's first lane delivers to the destinations, and in this mode that lane is the history table.
-        raise IncrementalHistoryUnavailableError(
-            f"{schema.name} keeps only a history table, which can't sync to other destinations. "
-            "Keep both tables to sync it there too."
-        )
-    if source_response.lanes or source_response.replace_scope is not None:
-        raise IncrementalHistoryUnavailableError(
-            f"{schema.name} keeps a history table, but its source replaces rows instead of merging them by key"
-        )
-    if not resolve_primary_keys(schema, source_response):
-        raise IncrementalHistoryUnavailableError(f"{schema.name} keeps a history table, which needs a primary key")
     if schema.incremental_field is None:
         raise IncrementalHistoryUnavailableError(
             f"{schema.name} keeps a history table, which needs an incremental field"
         )
-    try:
-        naming = incremental_history_naming(schema)
-    except (LegacyHistoryTableError, HistoryTableNameTakenError) as e:
-        raise IncrementalHistoryUnavailableError(str(e)) from e
+    naming = history_lane_naming(schema, source_response, destination_ids, history_only=history_only)
     history_lane = OutputLane(
         name=companion_resource_name(schema.name, naming),
         cdc_write_mode=SCD2_APPEND_MODE,
@@ -140,6 +122,36 @@ def attach_history_lanes(
         source_response.name = history_lane.name
     else:
         source_response.lanes = [OutputLane(name=source_response.name), history_lane]
+
+
+def history_lane_naming(
+    schema: ExternalDataSchema,
+    source_response: SourceResponse,
+    destination_ids: Sequence[str],
+    *,
+    history_only: bool,
+) -> HistoryNaming:
+    """The history table's naming, or the reason this run can't write it."""
+    if not includes_the_warehouse(schema.team_id, destination_ids):
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps a history table, which lives in the PostHog warehouse, but it doesn't sync there"
+        )
+    if history_only and external_destination_ids_for(schema.team_id, destination_ids):
+        # The run's first lane delivers to the destinations, and in this mode that lane is the history table.
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps only a history table, which can't sync to other destinations. "
+            "Keep both tables to sync it there too."
+        )
+    if source_response.lanes or source_response.replace_scope is not None:
+        raise IncrementalHistoryUnavailableError(
+            f"{schema.name} keeps a history table, but its source replaces rows instead of merging them by key"
+        )
+    if not resolve_primary_keys(schema, source_response):
+        raise IncrementalHistoryUnavailableError(f"{schema.name} keeps a history table, which needs a primary key")
+    try:
+        return incremental_history_naming(schema)
+    except (LegacyHistoryTableError, HistoryTableNameTakenError) as e:
+        raise IncrementalHistoryUnavailableError(str(e)) from e
 
 
 def stamp_history_batch(
@@ -226,7 +238,12 @@ async def stage_history_batch(
 
 
 async def finalize_history_lane(
-    table: DeltaTableRef, primary_keys: Sequence[str], *, run_uuid: str, batch_index: int
+    table: DeltaTableRef,
+    primary_keys: Sequence[str],
+    *,
+    run_uuid: str,
+    batch_index: int,
+    event_order: EventOrder | None = None,
 ) -> HistoryFinalizeResult | None:
     """Write the run's staged rows as versions, at the run's final batch. None when the lane staged nothing."""
     return await history_upsert.finalize(
@@ -235,4 +252,5 @@ async def finalize_history_lane(
         key_columns=primary_keys,
         naming=HISTORY_NAMING,
         commit_metadata={"run_uuid": run_uuid, "batch_index": str(batch_index)},
+        event_order=event_order,
     )
