@@ -1,5 +1,6 @@
 import datetime as dt
 from collections.abc import Mapping
+from itertools import chain
 
 from products.alerts_platform.backend.facade.contracts import AlertBatchKey, AlertDemand, SourceKind
 from products.alerts_platform.backend.logic.platform_lifecycle import due_q, slot_of, suppressed
@@ -29,14 +30,22 @@ def discover_demand(cutoff: str, limits_by_source: Mapping[SourceKind, int] | No
         # A broken or snoozed alert would otherwise mint a key every tick that its own evaluation
         # then drops.
         .exclude(suppressed())
-        .order_by("next_check_at", "id")
-        .values_list("source_kind", "team_id", "next_check_at")
+    )
+    # A never-checked configuration has a NULL due time and belongs to this tick, so it goes first.
+    # Two reads rather than one NULLS FIRST sort, because `platform_alert_cfg_due_idx` stores NULL
+    # last: each read follows that index in order and Postgres sorts nothing. The never-checked read
+    # orders by `next_check_at` too, although every value is NULL, because Postgres sorts by `id`
+    # alone instead of reading that order from the index.
+    never_checked = due.filter(next_check_at__isnull=True).order_by("next_check_at", "id")
+    overdue = due.filter(next_check_at__lte=cutoff_time).order_by("next_check_at", "id")
+    rows = chain.from_iterable(
+        query.values_list("source_kind", "team_id", "next_check_at").iterator() for query in (never_checked, overdue)
     )
 
     keys_by_source: dict[SourceKind, list[AlertBatchKey]] = {}
     seen: dict[SourceKind, set[AlertBatchKey]] = {}
     omitted_by_source: dict[SourceKind, int] = {}
-    for raw_source, team_id, next_check_at in due.iterator():
+    for raw_source, team_id, next_check_at in rows:
         source = SourceKind(raw_source)
         key = AlertBatchKey(team_id=team_id, slot=slot_of(next_check_at, cutoff_time))
         source_seen = seen.setdefault(source, set())

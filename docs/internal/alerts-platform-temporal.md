@@ -235,6 +235,7 @@ Only nonempty groups are returned. Discovery does not reserve or claim IDs.
 Each source is bounded to its binding's `discovery_limit`, or to `DISCOVERY_LIMIT_PER_SOURCE` (1,000) without a binding, so the manifest stays near 55 KB per 1,000 keys, under the repository's 256 KB rule for Temporal payload fields.
 The insight binding allows up to 2,000 keys (`ALERTS_PLATFORM_INSIGHT_KEYS_PER_TICK`), about 110 KB.
 A source that admits fewer checks per tick sets a lower limit, because every key starts a workflow.
+The bound keeps never-checked configurations (no `next_check_at`) first, then the oldest due, so a key it leaves out grows more overdue and wins a later tick.
 `omitted_by_source` counts the due IDs left out. The tick adds that count to its `remaining` result, and the next tick discovers that work again.
 
 For now, `logic/demand.py` supplies deterministic synthetic configurations relative to that cutoff:
