@@ -1,6 +1,7 @@
 from typing import Any, Optional
 
 import pytest
+import time_machine
 
 from products.warehouse_sources.sources.grafana_irm._config import GrafanaIRMSourceConfig
 from products.warehouse_sources.sources.grafana_irm.grafana_irm import (
@@ -18,6 +19,7 @@ STACK_URL = "https://acme.grafana.net"
 ONCALL_URL = "https://oncall-prod-us-central-0.grafana.net/oncall"
 INCIDENT_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.QueryIncidentPreviews"
 ACTIVITY_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/ActivityService.QueryActivity"
+KEY_UPDATES_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/KeyUpdatesService.QueryKeyUpdates"
 MEMBERSHIP_PATH = "/api/plugins/grafana-irm-app/resources/api/v1/IncidentsService.GetIncidentMembership"
 
 
@@ -156,40 +158,85 @@ def test_incident_cursor_travels_in_the_post_body(resume_cursor: Optional[str]) 
     assert result.response.primary_keys == ["incidentID"]
 
 
-def test_incident_activity_fans_out_over_every_incident() -> None:
+@pytest.mark.parametrize(
+    ("endpoint", "path", "selector", "row_id", "order_field"),
+    [
+        ("incident_activity", ACTIVITY_PATH, "activityItems", "activityItemID", None),
+        ("incident_key_updates", KEY_UPDATES_PATH, "keyUpdates", "id", "createdTime"),
+    ],
+)
+def test_incident_child_fans_out_over_every_incident(
+    endpoint: str, path: str, selector: str, row_id: str, order_field: str | None
+) -> None:
+    first_row = {"incidentID": "1", row_id: "item-a"}
+    next_row = {"incidentID": "1", row_id: "item-b"}
     result = _driver().run(
-        "incident_activity",
+        endpoint,
         [
             ScriptedResponse(
                 json={"incidentPreviews": [{"incidentID": "1"}, {"incidentID": "2"}], "cursor": {"hasMore": False}}
             ),
             ScriptedResponse(
                 json={
-                    "activityItems": [{"incidentID": "1", "activityItemID": "a"}],
+                    selector: [first_row],
                     "cursor": {"nextValue": "c", "hasMore": True},
                 }
             ),
-            ScriptedResponse(
-                json={"activityItems": [{"incidentID": "1", "activityItemID": "b"}], "cursor": {"hasMore": False}}
-            ),
-            ScriptedResponse(json={"activityItems": [], "cursor": {"hasMore": False}}),
+            ScriptedResponse(json={selector: [next_row], "cursor": {"hasMore": False}}),
+            ScriptedResponse(json={selector: [], "cursor": {"hasMore": False}}),
+        ],
+    )
+
+    assert result.raised is None
+    assert result.rows == [first_row, next_row]
+    assert result.paths == [INCIDENT_PATH, path, path, path]
+    child_requests = result.requests[1:]
+    assert all(request.method == "POST" for request in child_requests)
+    child_bodies = [request.json() for request in child_requests]
+    assert [(body["query"]["incidentID"], body.get("cursor")) for body in child_bodies] == [
+        ("1", None),
+        ("1", {"nextValue": "c", "hasMore": True}),
+        ("2", None),
+    ]
+    assert all(body["query"].get("orderField") == order_field for body in child_bodies)
+    assert all(body["query"]["orderDirection"] == "ASC" for body in child_bodies)
+
+
+@time_machine.travel("2026-01-08T15:30:00Z", tick=False)
+def test_final_schedule_shifts_page_per_schedule() -> None:
+    first_shift = {"user_pk": "user-a", "shift_start": "2025-12-10T09:00:00Z", "shift_end": "2025-12-10T17:00:00Z"}
+    second_shift = {**first_shift, "user_pk": "user-b"}
+    result = _driver().run(
+        "final_schedule_shifts",
+        [
+            ScriptedResponse(json=_oncall_page([{"id": "schedule-a"}], 1, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([second_shift], 2, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([{"id": "schedule-empty"}, {"id": "schedule-b"}], 2, total_pages=2)),
+            ScriptedResponse(json=_oncall_page([], 1, total_pages=1)),
+            ScriptedResponse(json=_oncall_page([first_shift], 1, total_pages=1)),
         ],
     )
 
     assert result.raised is None
     assert result.rows == [
-        {"incidentID": "1", "activityItemID": "a"},
-        {"incidentID": "1", "activityItemID": "b"},
+        {**first_shift, "schedule_id": "schedule-a"},
+        {**second_shift, "schedule_id": "schedule-a"},
+        {**first_shift, "schedule_id": "schedule-b"},
     ]
-    assert result.paths == [INCIDENT_PATH, ACTIVITY_PATH, ACTIVITY_PATH, ACTIVITY_PATH]
-    activity_bodies = [request.json() for request in result.requests if request.path == ACTIVITY_PATH]
-    assert [(body["query"]["incidentID"], body.get("cursor")) for body in activity_bodies] == [
-        ("1", None),
-        ("1", {"nextValue": "c", "hasMore": True}),
-        ("2", None),
+    base = "/oncall/api/v1/schedules/"
+    assert [(request.path, request.param("page")) for request in result.requests] == [
+        (base, "1"),
+        (f"{base}schedule-a/final_shifts", "1"),
+        (f"{base}schedule-a/final_shifts", "2"),
+        (base, "2"),
+        (f"{base}schedule-empty/final_shifts", "1"),
+        (f"{base}schedule-b/final_shifts", "1"),
     ]
-    assert result.response is not None
-    assert result.response.primary_keys == ["incidentID", "activityItemID"]
+    for request in result.requests:
+        if request.path != base:
+            assert request.param("start_date") == "2025-01-08"
+            assert request.param("end_date") == "2026-01-08"
 
 
 def test_alerts_fan_out_over_every_alert_group() -> None:

@@ -2,8 +2,9 @@ import re
 import copy
 import dataclasses
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import SplitResult, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import requests
 from requests import Request, Response
@@ -287,14 +288,42 @@ def _incident_membership_pages(client: RESTClient) -> Iterator[list[dict[str, An
                 reach_safe_point()
 
 
-def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every incident and yield its activity timeline page by page.
+def _final_schedule_shift_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
+    schedules = GRAFANA_IRM_ENDPOINTS["schedules"]
+    shifts = GRAFANA_IRM_ENDPOINTS["final_schedule_shifts"]
+    end = datetime.now(UTC).date()
+    params = {
+        "start_date": (end - timedelta(days=365)).isoformat(),
+        "end_date": end.isoformat(),
+        "perpage": ONCALL_PAGE_SIZE,
+    }
 
-    The activity query takes the incident ID in the POST body, which the declarative fan-out can
-    only bind into the URL path, so this walks both levels with the same client.
-    """
+    for schedule_page in client.paginate(
+        schedules.path,
+        params={"perpage": ONCALL_PAGE_SIZE},
+        paginator=_oncall_paginator(),
+        data_selector=schedules.data_selector,
+        data_selector_required=True,
+    ):
+        for schedule in schedule_page:
+            schedule_id = schedule.get("id")
+            if not schedule_id:
+                continue
+            for shift_page in client.paginate(
+                shifts.path.format(schedule_id=quote(schedule_id, safe="")),
+                params=params,
+                paginator=_oncall_paginator(),
+                data_selector=shifts.data_selector,
+                data_selector_required=True,
+            ):
+                if shift_page:
+                    yield [{**shift, "schedule_id": schedule_id} for shift in shift_page]
+
+
+def _incident_child_pages(client: RESTClient, child: GrafanaIRMEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """The declarative fan-out cannot bind the parent ID into the POST body."""
+
     incidents = GRAFANA_IRM_ENDPOINTS["incidents"]
-    activity = GRAFANA_IRM_ENDPOINTS["incident_activity"]
     incident_query = {"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}}
 
     for incident_page in client.paginate(
@@ -309,19 +338,19 @@ def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]
             incident_id = incident.get("incidentID")
             if not incident_id:
                 continue
-            body = copy.deepcopy(activity.json)
+            body = copy.deepcopy(child.json)
             body["query"]["incidentID"] = incident_id
-            for activity_page in client.paginate(
-                activity.path,
+            for child_page in client.paginate(
+                child.path,
                 method="post",
                 json=body,
                 paginator=IncidentCursorPaginator(),
-                data_selector=activity.data_selector,
+                data_selector=child.data_selector,
                 data_selector_required=True,
                 data_selector_empty_ok=True,
             ):
-                if activity_page:
-                    yield activity_page
+                if child_page:
+                    yield child_page
 
 
 def grafana_irm_source(
@@ -348,9 +377,11 @@ def grafana_irm_source(
         }
 
     fan_out_pages: dict[str, Callable[[], Iterator[list[dict[str, Any]]]]] = {
-        "incident_activity": lambda: _incident_activity_pages(_incident_client(token, stack_url)),
+        "incident_activity": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
+        "incident_key_updates": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
         "incident_membership": lambda: _incident_membership_pages(_incident_client(token, stack_url)),
         "alerts": lambda: _alert_pages(_oncall_client(token, stack_url, oncall_api_url)),
+        "final_schedule_shifts": lambda: _final_schedule_shift_pages(_oncall_client(token, stack_url, oncall_api_url)),
     }
     if endpoint in fan_out_pages:
         return SourceResponse(

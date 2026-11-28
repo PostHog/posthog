@@ -81,6 +81,14 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         # External iCal feed URLs are often private calendar links that grant read access on their own.
         dropped_fields=("ical_url_primary", "ical_url_overrides"),
     ),
+    "final_schedule_shifts": GrafanaIRMEndpointConfig(
+        name="final_schedule_shifts",
+        api="oncall",
+        path="/api/v1/schedules/{schedule_id}/final_shifts",
+        primary_keys=("schedule_id", "user_pk", "shift_start", "shift_end"),
+        parent="schedules",
+        description="On-call shifts after rotations and overrides. Covers the last 365 complete UTC days",
+    ),
     "on_call_shifts": GrafanaIRMEndpointConfig(
         name="on_call_shifts",
         api="oncall",
@@ -132,6 +140,16 @@ GRAFANA_IRM_ENDPOINTS: dict[str, GrafanaIRMEndpointConfig] = {
         json={"query": {"limit": INCIDENT_PAGE_SIZE, "orderDirection": "ASC"}},
         data_selector="activityItems",
         description="Timeline entries of every incident. Fetched per incident, so large incident histories take longer",
+    ),
+    "incident_key_updates": GrafanaIRMEndpointConfig(
+        name="incident_key_updates",
+        api="incident",
+        path="/KeyUpdatesService.QueryKeyUpdates",
+        partition_key="createdTime",
+        json={"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}},
+        data_selector="keyUpdates",
+        parent="incidents",
+        description="Key updates for each incident, with their content, status, and severity",
     ),
     "incident_membership": GrafanaIRMEndpointConfig(
         name="incident_membership",
