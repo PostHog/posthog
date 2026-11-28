@@ -248,11 +248,11 @@ def _matches_everything(element: list[Token]) -> bool:
 def combine_targets(targets: list[tuple[str, str]]) -> str:
     """Join several query targets into one expression, keeping their series apart with the clause label.
 
-    It uses the same convention as the PromQL editor, so each series shows the target's ref id.
+    It uses the same convention as the PromQL editor, so each series shows the target's clause name.
     """
     if len(targets) == 1:
         return targets[0][1]
-    labelled = [f'label_replace({expr}, "{CLAUSE_LABEL}", "{ref_id}", "", "")' for ref_id, expr in targets]
+    labelled = [f'label_replace({expr}, "{CLAUSE_LABEL}", "{clause}", "", "")' for clause, expr in targets]
     return " or ".join(labelled)
 
 

@@ -33,8 +33,8 @@ PromQL is available, so write metric panels in PromQL:
 sum by ("http.route") (...).
 - rate(x) and increase(x) without a range use the query step. You can keep an explicit range such as [5m].
 - For a histogram metric, use histogram_quantile(0.95, sum by (le) (rate(<name>_bucket))).
-- For a panel with several queries, join them: \
-label_replace(<A>, "clause", "A", "", "") or label_replace(<B>, "clause", "B", "", "")."""
+- For a panel with several queries, join them, with each target's series_name, or its ref_id when it has none: \
+label_replace(<A>, "clause", "A", "", "") or label_replace(<B>, "clause", "Errors", "", "")."""
 
 _METRIC_RULES_BUILDER = """\
 PromQL is not available in this project, so write metric panels as builder queries:

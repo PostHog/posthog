@@ -52,6 +52,7 @@ MAX_EXPRESSION_LENGTH = 4000
 MAX_TITLE_LENGTH = 200
 MAX_DESCRIPTION_LENGTH = 1000
 MAX_TEXT_LENGTH = 4000
+MAX_SERIES_NAME_LENGTH = 64
 
 _KIND_BY_TYPE: dict[str, PanelKind] = {
     "timeseries": "timeseries",
@@ -117,6 +118,10 @@ _ROUNDED_NOW = re.compile(r"^now/([dwMy])$")
 # Grafana writes minutes as "m" and months as "M". The date filters use the opposite letters.
 _TIME_UNITS = {"s": "s", "m": "M", "h": "h", "d": "d", "w": "w", "M": "m", "y": "y"}
 _HTML_TAG = re.compile(r"<[^>]+>")
+# A legend with these characters is a label template, a variable, or text that a PromQL string would need escapes for.
+_TEMPLATED_LEGEND = re.compile(r'[{}$"\\]')
+# The metrics charts treat the clause "formula" as the result of a builder formula.
+_RESERVED_SERIES_NAMES = frozenset({"formula"})
 
 
 class GrafanaImportError(ValueError):
@@ -178,6 +183,20 @@ def relative_date(grafana_from: Any) -> str | None:
     if match := _ROUNDED_NOW.match(grafana_from):
         return f"{_TIME_UNITS[match.group(1)]}Start"
     return None
+
+
+def _series_name(legend: str | None) -> str | None:
+    name = _text(legend, MAX_SERIES_NAME_LENGTH + 1)
+    if not name or len(name) > MAX_SERIES_NAME_LENGTH or _TEMPLATED_LEGEND.search(name):
+        return None
+    return None if name in _RESERVED_SERIES_NAMES else name
+
+
+def _with_series_names(targets: list[TargetSpec]) -> list[TargetSpec]:
+    """The targets, named by their fixed legends when every name in the panel stays different."""
+    named = [target.model_copy(update={"series_name": _series_name(target.legend)}) for target in targets]
+    clauses = [target.clause for target in named]
+    return named if len(set(clauses)) == len(clauses) else targets
 
 
 class GrafanaDashboardParser:
@@ -550,7 +569,7 @@ class GrafanaDashboardParser:
             )
         if hidden:
             notes.append("Hidden queries are not imported.")
-        return targets
+        return _with_series_names(targets)
 
     @staticmethod
     def _language(datasource: str | None, target: dict[str, Any], expression: str, grafana_type: str) -> TargetLanguage:
