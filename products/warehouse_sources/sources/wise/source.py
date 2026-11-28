@@ -21,6 +21,7 @@ from products.warehouse_sources.sources.sdk import (
 from products.warehouse_sources.sources.wise._config import WiseSourceConfig
 from products.warehouse_sources.sources.wise.settings import (
     API_VERSION,
+    BALANCE_STATEMENTS,
     ENDPOINTS,
     INCREMENTAL_FIELDS,
     INCREMENTAL_LOOKBACK,
@@ -74,6 +75,7 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             INCREMENTAL_FIELDS,
             names,
             merge_only=MERGE_ONLY_ENDPOINTS,
+            should_sync_default={BALANCE_STATEMENTS: False},
             default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK,
         )
 
@@ -121,7 +123,7 @@ class WiseSource(ResumableSource[WiseSourceConfig, WiseResumeConfig]):
             label="Wise",
             keywords=["transferwise"],
             caption=(
-                "Import profiles, balances, transfers, recipients and activities from your Wise account. "
+                "Import profiles, balances, balance statements, transfers, recipients, and activities from your Wise account. "
                 "In Wise, open your account settings, select **Accounting integrations**, then go to "
                 "**Developer tools** > **API tokens** and create a token. Personal API tokens are only "
                 "available for Wise business accounts. Wise limits what some tokens can read, for example "

@@ -41,6 +41,22 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "visible": "Whether the balance is visible to the user.",
         },
     },
+    "balance_statements": {
+        "description": "Money in and out of each Wise balance, with the running balance after each transaction. Wise limits personal API token access by country.",
+        "docs_url": "https://docs.wise.com/api-reference/balance-statement/balancestatementget",
+        "columns": {
+            "profileId": "ID of the profile that owns the balance.",
+            "balanceId": "ID of the balance account for the statement.",
+            "referenceNumber": "Unique Wise transaction reference.",
+            "date": "Time when Wise created the transaction.",
+            "type": "Direction of the transaction: DEBIT or CREDIT.",
+            "amount": "Signed transaction amount and currency.",
+            "totalFees": "Transaction fees and currency.",
+            "details": "Details of the transaction.",
+            "exchangeDetails": "Exchange rate and related details, if applicable.",
+            "runningBalance": "Balance amount and currency after the transaction.",
+        },
+    },
     "transfers": {
         "description": "A payment order from a profile to a recipient account, based on a quote.",
         "docs_url": "https://docs.wise.com/api-reference/transfer/transferlist",
