@@ -123,6 +123,9 @@ def test_unknown_table_fails_before_network(
         ("payment_terms", "/api/v1/terms", {}),
         ("price_lists", "/api/v1/price-lists", {"order_field": ["id"], "order_direction": ["ASC"]}),
         ("remissions", "/api/v1/remissions", {"order_field": ["id"], "order_direction": ["ASC"]}),
+        ("income_debit_notes", "/api/v1/income-debit-notes", {}),
+        ("retentions", "/api/v1/retentions", {}),
+        ("custom_fields", "/api/v1/custom-fields", {}),
     ],
 )
 def test_endpoint_request_shape(
@@ -141,3 +144,21 @@ def test_endpoint_request_shape(
     request_url = urlsplit(sent[0].url or "")
     assert request_url.path == path
     assert parse_qs(request_url.query) == {**query, "limit": ["30"], "start": ["0"]}
+
+
+def test_currencies_use_code_when_rows_have_no_id(
+    config: AlegraSourceConfig,
+    inputs: SourceInputs,
+    http_boundary: Callable[..., list[PreparedRequest]],
+    redis_boundary: dict[str, str],
+) -> None:
+    currencies = [{"code": "EUR", "exchangeRate": 1.15}, {"code": "CAD", "exchangeRate": 0.75}]
+    sent = http_boundary([(200, currencies)])
+    response = response_for(config, replace(inputs, schema_name="currencies"))
+
+    assert rows(response) == [currencies]
+    assert response.primary_keys == ["code"]
+    assert response.partition_keys == ["code"]
+    request_url = urlsplit(sent[0].url or "")
+    assert request_url.path == "/api/v1/currencies"
+    assert parse_qs(request_url.query) == {"limit": ["30"], "start": ["0"]}
