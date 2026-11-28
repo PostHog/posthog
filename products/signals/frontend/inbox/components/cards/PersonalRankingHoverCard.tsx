@@ -6,7 +6,7 @@ import { RankingScoreRows } from './RankingScoreRows'
 import { RankingStaffFooter } from './ReportCardRankingTag'
 
 /**
- * The score details on the personal order. It leads with where the report sits on the user's own
+ * The score details on the personal order. It leads with whether the report is on the user's own
  * list, then shows the same model section as the Recommended card, because the scores are the same
  * for everyone on the team.
  */
@@ -22,14 +22,12 @@ export function PersonalRankingHoverCard({
     const tier = report.personal_tier
         ? (INBOX_PERSONAL_TIERS[report.personal_tier]?.label ?? report.personal_tier)
         : null
-    // The server sends a listed report's position from 0 as its merge key.
-    const rank = tier !== null && typeof report.inbox_merge_key === 'number' ? report.inbox_merge_key + 1 : null
     return (
         <div className="flex max-w-96 min-w-80 flex-col gap-2 text-xs">
             {tier !== null ? (
                 <div>
                     <div className="text-sm font-semibold">
-                        <span>{rank !== null ? `#${rank} on your list` : 'On your list'}</span>
+                        <span>On your list</span>
                         <span className="font-normal opacity-70">{` · ${tier}`}</span>
                     </div>
                     {report.personal_reason && <div>{report.personal_reason}</div>}
