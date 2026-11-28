@@ -7,7 +7,10 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { InAppNotification } from '~/types'
 
+import { connectToNotificationsSSE } from './notificationsSSE'
 import { groupKey, NotificationGroup, sidePanelNotificationsLogic } from './sidePanelNotificationsLogic'
+
+jest.mock('./notificationsSSE')
 
 function makeNotification(overrides: Partial<InAppNotification> = {}): InAppNotification {
     return {
@@ -138,7 +141,7 @@ describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
 
     afterEach(() => logic.unmount())
 
-    it('marks the group full_children_loaded after fetch', async () => {
+    it('marks the group full_children_loaded after fetch and clears it when the list is replaced', async () => {
         const seed = makeNotification({ id: 'child-1' })
         logic.actions.setInAppNotifications([seed], false)
         await expectLogic(logic, () => {
@@ -146,6 +149,9 @@ describe('sidePanelNotificationsLogic.loadGroupChildren', () => {
         }).toDispatchActions(['markGroupChildrenLoaded'])
         expect(logic.values.groups[0].full_children_loaded).toBe(true)
         expect(logic.values.groups[0].count).toBe(2)
+
+        logic.actions.setInAppNotifications([seed], false)
+        expect(logic.values.groups[0].full_children_loaded).toBe(false)
     })
 
     it('toggleGroupExpanded flips state', () => {
@@ -277,6 +283,104 @@ describe('sidePanelNotificationsLogic.unreadCount', () => {
         await expectLogic(logic).toDispatchActions(['loadImportantChangesSuccess'])
 
         expect(requests).toBe(legacyRequests)
+    })
+})
+
+describe('sidePanelNotificationsLogic.resume', () => {
+    let logic: ReturnType<typeof sidePanelNotificationsLogic.build>
+    let serverNotifications: InAppNotification[]
+    let deliver: (notification: InAppNotification) => void
+
+    const setHidden = (hidden: boolean): void => {
+        Object.defineProperty(document, 'hidden', { configurable: true, get: () => hidden })
+        document.dispatchEvent(new Event('visibilitychange'))
+    }
+    const makeNotifications = (prefix: string, count: number): InAppNotification[] =>
+        Array.from({ length: count }, (_, i) => makeNotification({ id: `${prefix}-${i}` }))
+    const loadedIds = (): string[] => logic.values.inAppNotifications.map((n: InAppNotification) => n.id)
+
+    beforeEach(() => {
+        jest.mocked(connectToNotificationsSSE).mockImplementation((_url, _token, signal, onNotification) => {
+            deliver = onNotification
+            return new Promise((_, reject) =>
+                signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
+            )
+        })
+        useMocks({
+            get: {
+                '/api/projects/:tid/notifications/': (req) => {
+                    const params = new URL(req.request.url).searchParams
+                    const offset = Number(params.get('offset') ?? 0)
+                    const limit = Number(params.get('limit'))
+                    return [
+                        200,
+                        {
+                            results: serverNotifications.slice(offset, offset + limit),
+                            next: offset + limit < serverNotifications.length ? 'next' : null,
+                        },
+                    ]
+                },
+                '/api/projects/:tid/notifications/unread_count/': () => [
+                    200,
+                    { count: serverNotifications.filter((n) => !n.read).length },
+                ],
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.REAL_TIME_NOTIFICATIONS]: true })
+        logic = sidePanelNotificationsLogic()
+    })
+
+    afterEach(() => {
+        logic.unmount()
+        setHidden(false)
+    })
+
+    it.each([
+        ['visible', false],
+        ['hidden', true],
+    ])(
+        'adds a notification created while the tab was hidden under one the stream delivers meanwhile (mounted %s)',
+        async (_, mountHidden) => {
+            const loaded = makeNotifications('old', 31)
+            serverNotifications = loaded
+            setHidden(mountHidden)
+            logic.mount()
+            await expectLogic(logic, () => logic.actions.loadInitialNotifications()).toFinishAllListeners()
+            await expectLogic(logic, () => logic.actions.loadMoreNotifications()).toFinishAllListeners()
+
+            setHidden(true)
+            const missed = makeNotification({ id: 'missed', created_at: '2026-05-07T13:00:00Z' })
+            const live = makeNotification({ id: 'live', created_at: '2026-05-07T14:00:00Z' })
+            serverNotifications = [missed, ...loaded]
+            setHidden(false)
+            deliver(live)
+            serverNotifications = [live, ...serverNotifications]
+            await expectLogic(logic).toFinishAllListeners()
+            const expected = { ids: ['live', 'missed', ...loaded.map((n) => n.id)], unread: 33 }
+            expect({ ids: loadedIds(), unread: logic.values.inAppUnreadCount }).toEqual(expected)
+            expect(logic.values.mainListOffset).toBe(31)
+
+            deliver(missed)
+            expect({ ids: loadedIds(), unread: logic.values.inAppUnreadCount }).toEqual(expected)
+        }
+    )
+
+    it('replaces the list when more than a page arrived while hidden, and keeps what the stream delivers meanwhile', async () => {
+        serverNotifications = makeNotifications('old', 1)
+        logic.mount()
+        await expectLogic(logic, () => logic.actions.loadInitialNotifications()).toFinishAllListeners()
+
+        setHidden(true)
+        serverNotifications = [...makeNotifications('new', 31), ...serverNotifications]
+        setHidden(false)
+        deliver(serverNotifications[0])
+        deliver(makeNotification({ id: 'live', created_at: '2026-05-07T14:00:00Z' }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(loadedIds()).toEqual(['live', ...serverNotifications.slice(0, 30).map((n) => n.id)])
+        expect(logic.values.mainListOffset).toBe(30)
+        expect(logic.values.hasMoreNotifications).toBe(true)
     })
 })
 
