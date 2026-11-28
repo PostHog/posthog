@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from datetime import datetime
 
 from products.data_catalog.backend.facade.enums import CertificationStatus
@@ -13,16 +14,21 @@ from .base import (
     DIRECT_SOURCE_REJECTION,
     FEEDS_CONSUMERS_REJECTION,
     MILLISECONDS_PER_SECOND,
+    REFRESH_BYTES_PER_MONTH,
+    REFRESH_SECONDS_PER_MONTH,
     Candidate,
     CandidateContext,
     CandidateResult,
+    RealizedSavings,
     Rejection,
     certification_outcome,
+    stored_cost,
 )
 
 
 class DeprecateCandidate(Candidate):
     kind = WarehouseSuggestionKind.DEPRECATE
+    realized_savings_wait_for_read_window = False
 
     def evaluate(self, context: CandidateContext) -> CandidateResult:
         rules = context.rules.deprecate
@@ -71,7 +77,7 @@ class DeprecateCandidate(Candidate):
                         materialized=saved_query.materializes,
                     ),
                     score=max(seconds / rules.seconds_floor, read_bytes / rules.bytes_floor),
-                    score_inputs={"refresh_seconds_per_month": seconds, "refresh_bytes_per_month": read_bytes},
+                    score_inputs={REFRESH_SECONDS_PER_MONTH: seconds, REFRESH_BYTES_PER_MONTH: read_bytes},
                 )
             )
         return CandidateResult(drafts=tuple(drafts), rejections=tuple(rejections))
@@ -82,6 +88,17 @@ class DeprecateCandidate(Candidate):
         if subject.id not in context.inventory.saved_queries:
             return WarehouseSuggestionAssetOutcome.LIVE
         return certification_outcome(context, subject, CertificationStatus.DEPRECATED)
+
+    def realized_savings(
+        self, context: CandidateContext, subject: Subject, score_inputs: Mapping[str, float]
+    ) -> RealizedSavings | None:
+        saved_query = context.inventory.saved_queries.get(subject.id)
+        if saved_query is not None and saved_query.materializes:
+            return None
+        refresh_cost = stored_cost(score_inputs, REFRESH_SECONDS_PER_MONTH, REFRESH_BYTES_PER_MONTH)
+        if refresh_cost is None:
+            return None
+        return RealizedSavings(seconds=refresh_cost.seconds, read_bytes=refresh_cost.read_bytes)
 
     def is_resolved(self, context: CandidateContext, subject: Subject) -> bool:
         saved_query = context.inventory.saved_queries.get(subject.id)
