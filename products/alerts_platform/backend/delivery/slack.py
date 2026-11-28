@@ -66,10 +66,9 @@ SLACK_EDIT_TIMEOUT_SECONDS: Final = 3
 IMAGE_REFUSAL: Final = "invalid_blocks"
 
 
-# A detail that is one URL, such as a dashboard or runbook link from a rule annotation. Slack leaves
-# a URL in a verbatim section as plain text, so these get a section of their own that is not
-# verbatim. The URL is the visible text of its link, so it cannot disguise another destination, and
-# the limits keep the section under MAX_SECTION_CHARS: 8 lines of at most 40 + 300 + 10 characters.
+# Slack leaves a URL in a verbatim section as plain text, so a URL detail gets a section of its own
+# that is not verbatim. The URL is the visible text of its link, so it cannot disguise another
+# destination.
 _LINK_VALUE: Final = re.compile(r"https?://[^\s<>|]{1,300}")
 _LINK_LABEL: Final = re.compile(r"[\w .-]{1,40}")
 MAX_LINK_LINES: Final = 8
