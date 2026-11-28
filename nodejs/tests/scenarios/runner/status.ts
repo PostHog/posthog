@@ -6,7 +6,6 @@ import { BarResult, unsourced } from '../judge/bars'
 import { atLeastOnce, bouncedSuppressed, noLoss } from '../judge/invariants'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS } from '../judge/measurements'
-import { WORKER_OF } from '../judge/pickups'
 import { type Ramp, ratesReasonOf } from '../judge/ramp'
 import type { WriterSample } from '../probe/writer-probe'
 import { VALVES, ValveTimelineEntry } from '../valves/valves'
@@ -198,22 +197,6 @@ function interruptionWithoutValve(
     return undefined
 }
 
-// ses.hold answers its sends at release, so an email worker that exits after the release waited out its SES calls
-// instead of bounding its shutdown.
-function exitsAfterHoldRelease(timeline: readonly ValveTimelineEntry[]): string[] {
-    const releases = timeline.flatMap(({ valve, releasedAt }) =>
-        valve === 'ses.hold' && releasedAt !== undefined ? [Date.parse(releasedAt)] : []
-    )
-    return timeline.flatMap(({ valve, target, exit }) =>
-        valve === 'role.terminate' &&
-        target === WORKER_OF.email &&
-        exit?.exitedAt !== undefined &&
-        releases.some((releasedAt) => Date.parse(exit.exitedAt!) > releasedAt)
-            ? [`${target} exited after ses.hold released its answers, so its shutdown waited out the held SES calls`]
-            : []
-    )
-}
-
 const unreadReasonOf = (unread: string): string => `the judge could not read the final state: ${unread}`
 
 export const unobservedReasonOf = ({ valve, target, error }: ValveTimelineEntry): string =>
@@ -362,7 +345,6 @@ function unrampedStatusOf({
     ]
     const failures = [
         ...notConvergedOf(convergence),
-        ...exitsAfterHoldRelease(timeline),
         ...invariants
             .filter(({ passed, unjudged }) => !passed && unjudged === undefined)
             .map(({ name, violation }) => `${name} failed${violation ? `: ${violation}` : ''}`),

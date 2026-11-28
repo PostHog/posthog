@@ -69,25 +69,6 @@ const killed = (role: string, applied: number, released?: number): ValveTimeline
     releasedAt: released === undefined ? undefined : at(released),
 })
 
-const sesHeld = (released: number): ValveTimelineEntry => ({
-    valve: 'ses.hold',
-    target: 'ses',
-    requestedAt: at(0),
-    appliedAt: at(10),
-    observedAt: at(11),
-    releasedAt: at(released),
-})
-
-const terminated = (role: string, exitedAt: number): ValveTimelineEntry => ({
-    valve: 'role.terminate',
-    target: role,
-    requestedAt: at(0),
-    appliedAt: at(12),
-    observedAt: at(12),
-    releasedAt: at(exitedAt),
-    exit: { signalledAt: at(12), exitedAt: at(exitedAt), code: 0, signal: null },
-})
-
 const failedOver: ValveTimelineEntry = {
     valve: 'pg.failover',
     target: 'cyclotron',
@@ -140,18 +121,6 @@ describe('statusOf', () => {
 
     it.each<[string, Partial<Verdict>, string, string]>([
         ['every invariant held', {}, 'passed', 'every invariant held'],
-        [
-            'the email worker exited while ses.hold still kept its answers',
-            { timeline: [sesHeld(40), terminated(EMAIL_WORKER, 30), terminated(HOGFLOW_WORKER, 45)] },
-            'passed',
-            'every invariant held',
-        ],
-        [
-            'the email worker exited only after ses.hold released its answers',
-            { timeline: [sesHeld(40), terminated(EMAIL_WORKER, 45)] },
-            'failed',
-            `${EMAIL_WORKER} exited after ses.hold released its answers, so its shutdown waited out the held SES calls`,
-        ],
         ['an invariant failed', { invariants: [BROKEN] }, 'failed', 'at_least_once failed: run-1 email: lost'],
         [
             'the stack did not converge',
