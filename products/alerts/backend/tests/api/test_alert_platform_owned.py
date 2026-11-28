@@ -549,6 +549,92 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
 
         assert response.json()["results"] == []
 
+    def _platform_alerts_url(self) -> str:
+        self.enterContext(patch("posthog.permissions.posthog_feature_flag_enabled", return_value=True))
+        return f"/api/projects/{self.team.id}/platform_alerts/"
+
+    def _assert_platform_reads(self, url: str, *, shown: bool) -> None:
+        listed = self.client.get(url)
+        retrieved = self.client.get(f"{url}{self.copy_id}/")
+        events = self.client.get(f"{url}{self.copy_id}/events/")
+
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["id"] for row in listed.json()["results"]] == ([str(self.copy_id)] if shown else [])
+        assert listed.json()["count"] == (1 if shown else 0)
+        expected = status.HTTP_200_OK if shown else status.HTTP_404_NOT_FOUND
+        assert (retrieved.status_code, events.status_code) == (expected, expected), retrieved.json()
+
+    @parameterized.expand([("member_who_can_view_the_insight", False), ("member_who_cannot_view_the_insight", True)])
+    def test_the_platform_api_shows_an_insight_alert_only_to_a_reader_of_its_insight(
+        self, _name: str, insight_hidden: bool
+    ) -> None:
+        url = self._platform_alerts_url()
+        if insight_hidden:
+            self.organization.available_product_features = [
+                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+            AccessControl.objects.create(
+                resource="insight", resource_id=str(self.alert.insight_id), team=self.team, access_level="none"
+            )
+
+        self._assert_platform_reads(url, shown=not insight_hidden)
+
+    @parameterized.expand(
+        [
+            ("platform_owned_copy", PlatformAlertOwner.PLATFORM, True, True),
+            ("source_owned_copy", PlatformAlertOwner.SOURCE, True, False),
+            ("native_alert", PlatformAlertOwner.PLATFORM, False, True),
+        ]
+    )
+    def test_the_platform_api_shows_only_the_insight_alerts_the_platform_holds(
+        self, _name: str, owner: PlatformAlertOwner, has_source_row: bool, shown: bool
+    ) -> None:
+        url = self._platform_alerts_url()
+        with team_scope(self.team.id):
+            platform_testing.set_owner(self.copy_id, owner)
+            if not has_source_row:
+                platform_testing.forget_source_row(self.copy_id)
+
+        self._assert_platform_reads(url, shown=shown)
+
+    @parameterized.expand(
+        [
+            (f"{write}_{alert}", method, path, body, has_source_row)
+            for write, method, path, body in [
+                ("edit", "patch", "", {"name": "Renamed"}),
+                ("delete", "delete", "", None),
+                ("snooze", "post", "snooze/", {"snooze_until": None}),
+                ("group_snooze", "post", "snooze_group/", {"grouping_key": "checkout", "snooze_until": None}),
+                ("reset", "post", "reset/", None),
+                (
+                    "add_destination",
+                    "post",
+                    "destinations/",
+                    {"type": "webhook", "webhook_url": "https://example.com/a"},
+                ),
+                ("delete_destination", "post", "destinations/delete/", {"destination_ids": []}),
+            ]
+            for alert, has_source_row in [("copy", True), ("native_alert", False)]
+        ]
+    )
+    def test_the_platform_api_does_not_write_an_insight_alert(
+        self, _name: str, method: str, path: str, body: dict[str, Any] | None, has_source_row: bool
+    ) -> None:
+        url = f"{self._platform_alerts_url()}{self.copy_id}/{path}"
+        if not has_source_row:
+            with team_scope(self.team.id):
+                platform_testing.forget_source_row(self.copy_id)
+
+        response = getattr(self.client, method)(url, body, format="json")
+
+        assert response.status_code == status.HTTP_409_CONFLICT, response.json()
+        assert response.json()["detail"] == "This alert is managed by the insight product. Change it there."
+        copy = get_configuration(team_id=self.team.id, source_kinds=["insight"], configuration_id=self.copy_id)
+        assert copy is not None and copy.name == self.alert.name
+
     @parameterized.expand([("list",), ("retrieve",)])
     def test_a_moved_alert_reads_back_its_settings_from_the_platform_after_its_row_drifts(self, action: str) -> None:
         threshold = {"type": "absolute", "bounds": {"lower": 10.0, "upper": 50.0}}

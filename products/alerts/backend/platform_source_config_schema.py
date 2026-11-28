@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from posthog.schema import AlertCondition, InsightThreshold
 
 from products.alerts.backend.facade.contracts import INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION
+from products.alerts.backend.platform_hooks import viewable_alert_insights
 from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS, RECURRENCE, insight_activity_source
 from products.alerts.backend.platform_ownership import (
     admit_platform_write,
@@ -25,6 +26,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NativeAlertLifecycle,
     PlatformAlertConfigurationEdit,
     SourceConfigSpec,
+    SourceObjectAccess,
 )
 from products.alerts_platform.backend.facade.scheduling import MINUTES_PER_DAY
 
@@ -102,8 +104,8 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     model=InsightPlatformAlertSourceConfig,
     validate=validate_insight_edit,
     admit=admit_platform_write,
-    # No `mirror`: the insight API writes a moved alert's edits to its copy alone, and the platform API
-    # serves no insight alert.
+    # No `mirror`: the insight API writes a moved alert's edits to its copy alone.
+    read_only=True,
     # For an insight alert with no insight row: the platform deletes it, and its destinations stay
     # HogFunctions. `creates_native_alert` turns its creates on per team. A native create picks any
     # insight cadence, daily by default.
@@ -119,4 +121,5 @@ INSIGHT_SOURCE_CONFIG = SourceConfigSpec(
     incident_event_ids=INSIGHT_EVENT_IDS_BY_INCIDENT_ACTION,
     kept_source_config_keys=INSIGHT_ROW_SETTINGS,
     activity_source=insight_activity_source,
+    object_access=SourceObjectAccess(source_config_key="insight_id", viewable=viewable_alert_insights),
 )

@@ -359,12 +359,8 @@ SOURCE_KIND_RESOURCE: dict[str, APIScopeObject] = {
     PlatformAlertConfigurationSourceKind.METRICS.value: "metrics",
     PlatformAlertConfigurationSourceKind.TRACES.value: "tracing",
     PlatformAlertConfigurationSourceKind.ERROR_TRACKING.value: "error_tracking",
+    PlatformAlertConfigurationSourceKind.INSIGHT.value: "insight",
 }
-
-# Kinds the read API does not serve. An insight copy shows its insight's bound and firing state,
-# and a reader can hold access to insights in general but not to that insight. This product
-# cannot check access to one insight, so the copies stay out of the API until it can.
-UNSERVED_SOURCE_KINDS: frozenset[str] = frozenset({PlatformAlertConfigurationSourceKind.INSIGHT.value})
 
 
 class PlatformAlertConfigurationEditSerializer(serializers.Serializer):
@@ -429,7 +425,7 @@ def _typed_edit_serializer(
         )
     }
     native = spec.native
-    if native is not None and native.check_intervals and source.value not in UNSERVED_SOURCE_KINDS:
+    if native is not None and native.check_intervals and not spec.read_only:
         allowed = ", ".join(str(minutes) for minutes in sorted(native.check_intervals))
         fields["check_interval_minutes"] = serializers.IntegerField(
             min_value=1,
@@ -497,12 +493,13 @@ def _typed_create_serializer(
 @cache
 def create_serializers() -> dict[str, type[PlatformAlertConfigurationEditSerializer]]:
     """One create serializer per kind the API can create."""
-    creatable = {source.value for source, spec in editable_source_configs().items() if spec.creatable}
+    creatable = {
+        source.value for source, spec in editable_source_configs().items() if spec.creatable and not spec.read_only
+    }
     return {
         source_kind: _typed_create_serializer(serializer)
         for source_kind, serializer in edit_serializers().items()
-        # An unserved kind's alerts are created through its source's own API, which checks access to them.
-        if source_kind in creatable and source_kind not in UNSERVED_SOURCE_KINDS
+        if source_kind in creatable
     }
 
 
@@ -761,6 +758,9 @@ class PlatformAlertConfigurationViewSet(TeamAndOrgViewSetMixin, viewsets.Generic
         self, team_id: int, configuration_id: UUID, verb: str
     ) -> PlatformAlertConfigurationView:
         current = self._readable_configuration(team_id, configuration_id)
+        spec = editable_source_configs().get(SourceKind(current.source_kind))
+        if spec is not None and spec.read_only:
+            raise Conflict(f"This alert is managed by the {current.source_kind} product. Change it there.")
         if current.source_kind not in self._writable_source_kinds:
             raise PermissionDenied(f"You cannot {verb} {current.source_kind} alerts.")
         return current
