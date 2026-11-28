@@ -303,7 +303,9 @@ def test_openai_engine_warns_when_a_response_searches_past_the_cap(_name: str, s
         patch("products.aeo.backend.engines.gateway_post_json", return_value=body),
         structlog.testing.capture_logs() as logs,
     ):
-        check = OpenAIWebSearchEngine(model="gpt-6-luna").run("best flags tool", trace_id="t1", custom_properties={})
+        check = OpenAIWebSearchEngine(model="gpt-6-luna").run(
+            "best flags tool", trace_id="t1", custom_properties={}, billable=True
+        )
 
     assert check.error is None
     warnings = [log for log in logs if log["event"] == "aeo_openai_search_cap_exceeded"]
