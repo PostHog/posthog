@@ -36,6 +36,7 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.errors import QueryError
+from posthog.hogql.functions.cohort import inline_cohorts_may_read_flag_call_union
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.property import (
     action_to_expr,
@@ -844,7 +845,14 @@ WHERE and(
         ):
             return False
         # The built-in-only database carries no per-user access control.
-        return not team_has_property_access_rules(team_id=self.team.pk)
+        if team_has_property_access_rules(team_id=self.team.pk):
+            return False
+        # An inline cohort reads flag calls through the flag-call union. The built-in-only database turns the union
+        # off, and the cohort then counts only the flag calls that `events` holds.
+        return not (
+            any(get_property_type(prop) == "cohort" for prop in filters)
+            and inline_cohorts_may_read_flag_call_union(self.team, self.modifiers)
+        )
 
     @cached_property
     def _posthog_tables_database(self) -> Database:

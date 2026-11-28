@@ -17,11 +17,13 @@ from parameterized import parameterized
 
 from posthog.schema import (
     ActionConversionGoal,
+    CohortPropertyFilter,
     CompareFilter,
     CustomEventConversionGoal,
     DateRange,
     EventPropertyFilter,
     HogQLQueryModifiers,
+    InlineCohortCalculation,
     PersonPropertyFilter,
     PropertyOperator,
     SessionPropertyFilter,
@@ -40,6 +42,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.utils import uuid7
 
 from products.actions.backend.facade.testing import create_action
+from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.expression import DataWarehouseExpression
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
@@ -381,6 +384,49 @@ class TestWebAnalyticsDatabaseBuild(ClickhouseTestMixin, APIBaseTest):
                     conversionGoal=conversion_goal,
                 ),
             )
+
+        with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
+            runner.calculate()
+
+        assert create_for.called == builds_full_database
+
+    @parameterized.expand(
+        [
+            (
+                "always_inline_on_flag_evaluations_only",
+                InlineCohortCalculation.ALWAYS,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                True,
+            ),
+            (
+                "auto_inline_with_flag_off",
+                InlineCohortCalculation.AUTO,
+                FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                False,
+            ),
+            ("inline_off", InlineCohortCalculation.OFF, FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
+            ("always_inline_on_events", InlineCohortCalculation.ALWAYS, FlagEvaluationsMode.EVENTS, False),
+        ]
+    )
+    def test_full_database_is_built_only_when_an_inline_cohort_can_read_flag_calls(
+        self, _name: str, inline: InlineCohortCalculation, mode: FlagEvaluationsMode, builds_full_database: bool
+    ) -> None:
+        OrganizationFeatureFlagsConfig.objects.update_or_create(
+            organization=self.organization, defaults={"flag_evaluations_mode": mode}
+        )
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="Test users",
+            groups=[{"properties": [{"key": "email", "value": "test@posthog.com", "type": "person"}]}],
+        )
+        runner = WebOverviewQueryRunner(
+            team=self.team,
+            query=WebOverviewQuery(
+                dateRange=DateRange(date_from="2024-01-01", date_to="2024-01-02"),
+                properties=[CohortPropertyFilter(key="id", value=cohort.id, type="cohort")],
+                modifiers=HogQLQueryModifiers(inlineCohortCalculation=inline),
+            ),
+        )
 
         with mock.patch.object(Database, "create_for", wraps=Database.create_for) as create_for:
             runner.calculate()

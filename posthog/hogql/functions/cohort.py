@@ -1,5 +1,5 @@
 import datetime
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from django.utils import timezone
 
@@ -13,15 +13,23 @@ from posthog.hogql.parser import parse_expr
 
 from posthog.schema_enums import InlineCohortCalculation
 
+if TYPE_CHECKING:
+    from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models import Team
+
 INLINE_COHORT_THRESHOLD_SECONDS = 10
 
 
-def _is_inline_flag_enabled(context: HogQLContext) -> bool:
-    from posthog.models import Team
+def _inlining_allowed(mode: InlineCohortCalculation | None, team: "Team") -> bool:
+    """Whether the modifiers and the `inline-cohort-calculation` flag let a query inline a cohort. In AUTO mode,
+    `inline_cohort_query` also skips a cohort whose recent calculations were slow."""
+    if mode == InlineCohortCalculation.OFF:
+        return False
+    return mode == InlineCohortCalculation.ALWAYS or _is_inline_flag_enabled(team)
 
-    if not context.team:
-        context.team = Team.objects.get(id=context.team_id)
-    team = context.team
+
+def _is_inline_flag_enabled(team: "Team") -> bool:
     return bool(
         posthoganalytics.feature_enabled(
             "inline-cohort-calculation",
@@ -80,23 +88,18 @@ def inline_cohort_query(
     if is_static:
         return None
 
-    mode = context.modifiers.inlineCohortCalculation
-    if mode == InlineCohortCalculation.OFF:
-        return None
-
-    if mode is None or mode == InlineCohortCalculation.AUTO:
-        if not _is_inline_flag_enabled(context):
-            return None
-        if not _is_cohort_fast_enough_to_inline(cohort_id):
-            return None
-
-    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
-
     if not context.team:
         from posthog.models import Team
 
         context.team = Team.objects.get(id=context.team_id)
 
+    mode = context.modifiers.inlineCohortCalculation
+    if not _inlining_allowed(mode, context.team):
+        return None
+    if mode != InlineCohortCalculation.ALWAYS and not _is_cohort_fast_enough_to_inline(cohort_id):
+        return None
+
+    cohort = Cohort.objects.get(id=cohort_id, team__project_id=context.project_id)
     query = HogQLCohortQuery(cohort=cohort, team=context.team).get_query()
     if not read_flag_calls_from_union:
         return query
@@ -104,6 +107,25 @@ def inline_cohort_query(
     from posthog.hogql.transforms.flag_calls_union import read_flag_calls_in_inline_cohort  # noqa: PLC0415
 
     return read_flag_calls_in_inline_cohort(query, context)
+
+
+def inline_cohorts_may_read_flag_call_union(team: "Team", modifiers: "HogQLQueryModifiers") -> bool:
+    """Whether a query for the team may inline a cohort that reads flag calls through the flag-call union.
+
+    It is True when the modifiers and the `inline-cohort-calculation` flag allow inlining, the union is not switched
+    off, and the team's flag calls are only in flag_evaluations. It does not read a cohort's definition, because the resolver also inlines each cohort
+    that a definition references, such as a cohort in a behavioral condition's event filter.
+    """
+    from products.feature_flags.backend.facade.flags import (
+        is_flag_calls_union_disabled,
+        reads_flag_calls_without_events_fallback,
+    )
+
+    return (
+        _inlining_allowed(modifiers.inlineCohortCalculation, team)
+        and not is_flag_calls_union_disabled()
+        and reads_flag_calls_without_events_fallback(team, modifiers)
+    )
 
 
 def cohort_subquery(cohort_id, is_static, version: Optional[int] = None) -> ast.Expr:

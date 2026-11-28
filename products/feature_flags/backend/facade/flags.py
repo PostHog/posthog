@@ -179,11 +179,11 @@ def reads_flag_calls_from_flag_evaluations(team: Team, modifiers: "HogQLQueryMod
     return get_flag_evaluations_read_mode(team.organization_id) != FlagEvaluationsMode.EVENTS
 
 
-def reads_flag_calls_without_events_fallback(team: Team) -> bool:
+def reads_flag_calls_without_events_fallback(team: Team, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether a reader that picks its own table reads the team's flag calls from flag_evaluations alone, as HogQL's
     swap does when it has no fallback to events: the organization is on FLAG_EVALUATIONS_ONLY, whether or not its
     events writes are kept, or the team reads the native JSON events table."""
-    if _reads_native_events_with_flag_evaluations(team, None):
+    if _reads_native_events_with_flag_evaluations(team, modifiers):
         return True
     return get_flag_evaluations_read_mode(team.organization_id) == FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY
 
