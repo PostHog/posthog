@@ -5,7 +5,7 @@ from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, Optional
 
-from requests import ReadTimeout
+from requests import HTTPError, ReadTimeout
 from requests.auth import HTTPBasicAuth
 from urllib3.util.retry import Retry
 
@@ -129,8 +129,21 @@ def _resume_index(ids: list[str], next_id: str | None) -> int:
     return bisect_left(ids, next_id) if next_id is not None else 0
 
 
-def _management_page(client: RESTClient, url: str) -> list[dict[str, Any]]:
-    return next(client.paginate(url, paginator=SinglePagePaginator(), data_selector="results"), [])
+def _management_child_rows(client: RESTClient, url: str) -> list[dict[str, Any]]:
+    try:
+        page = next(client.paginate(url, paginator=SinglePagePaginator()), [])
+    except HTTPError as error:
+        if error.response is not None and error.response.status_code == 404:
+            return []
+        raise
+    if not page:
+        return []
+    if len(page) != 1 or not isinstance(page[0], dict) or not isinstance(rows := page[0].get("results"), list):
+        raise RESTClientRetryableError("Unity returned an unexpected management response.")
+    total = page[0].get("total")
+    if isinstance(total, int) and total > len(rows):
+        raise RESTClientRetryableError("Unity returned fewer management rows than it reported.")
+    return rows
 
 
 def _management_app_rows(
@@ -143,7 +156,7 @@ def _management_app_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     app_id = current_app.next_app_id
     campaigns_url = f"{apps_url}/{app_id}/campaigns"
-    campaigns = _management_page(client, campaigns_url)
+    campaigns = _management_child_rows(client, campaigns_url)
     if not campaigns or endpoint == "campaigns":
         manager.save_state(next_app)
         if campaigns:
@@ -161,7 +174,7 @@ def _management_app_rows(
         return
     for campaign_index in range(first_campaign, len(campaign_ids)):
         campaign_id = campaign_ids[campaign_index]
-        bids = _management_page(client, f"{campaigns_url}/{campaign_id}/{bid_path}")
+        bids = _management_child_rows(client, f"{campaigns_url}/{campaign_id}/{bid_path}")
         manager.save_state(
             replace(current_app, next_campaign_id=campaign_ids[campaign_index + 1])
             if campaign_index + 1 < len(campaign_ids)
@@ -286,15 +299,11 @@ def _stats_probe_params(report: UnityAdsEndpointConfig | None) -> dict[str, str 
     return params
 
 
-def validate_credentials(
+def _credential_probe_status(
     organization_id: str, key_id: str, secret_key: str, schema_name: str | None = None
-) -> tuple[bool, str | None]:
-    organization_id = organization_id.strip()
-    if not organization_id.isdigit():
-        return False, f"{INVALID_ORGANIZATION_ID}. Find it under Settings in the Unity Ads dashboard."
-    management = schema_name in MANAGEMENT_PRIMARY_KEYS
+) -> int | None:
     apps_url = f"{UNITY_MANAGEMENT_URL.format(organization_id=organization_id)}/apps"
-    if management:
+    if schema_name in MANAGEMENT_PRIMARY_KEYS:
         url = apps_url
         params: dict[str, str | int] = {"limit": 1}
     else:
@@ -311,17 +320,44 @@ def validate_credentials(
             if schema_name is None and response.status_code == 403:
                 response = session.get(apps_url, params={"limit": 1}, auth=auth, timeout=PROBE_TIMEOUT)
     except Exception:  # noqa: BLE001 — a credential probe must never raise; any failure means "not validated"
-        return False, "Could not connect to Unity. Try again in a minute."
-    if response.status_code in (200, 204):
+        return None
+    return response.status_code
+
+
+def unity_ads_endpoint_permissions(
+    organization_id: str, key_id: str, secret_key: str, endpoints: list[str]
+) -> dict[str, str | None]:
+    organization_id = organization_id.strip()
+    permissions: dict[str, str | None] = dict.fromkeys(endpoints)
+    if not organization_id.isdigit():
+        return permissions
+    for group, reason in (
+        (UNITY_ADS_ENDPOINTS, STATS_PERMISSION_ERROR),
+        (MANAGEMENT_PRIMARY_KEYS, MANAGEMENT_PERMISSION_ERROR),
+    ):
+        selected = [name for name in group if name in permissions]
+        if selected and _credential_probe_status(organization_id, key_id, secret_key, selected[0]) == 403:
+            permissions.update(dict.fromkeys(selected, reason))
+    return permissions
+
+
+def validate_credentials(
+    organization_id: str, key_id: str, secret_key: str, schema_name: str | None = None
+) -> tuple[bool, str | None]:
+    organization_id = organization_id.strip()
+    if not organization_id.isdigit():
+        return False, f"{INVALID_ORGANIZATION_ID}. Find it under Settings in the Unity Ads dashboard."
+    status = _credential_probe_status(organization_id, key_id, secret_key, schema_name)
+    if status in (200, 204):
         return True, None
-    if response.status_code == 401:
+    if status == 401:
         return False, "Unity rejected the key ID or secret key. Check the service account key and try again."
-    if response.status_code == 403:
+    if status == 403:
         if schema_name is None:
             return False, (
                 "Give the service account the Advertise Stats API Viewer role or the Advertise API Viewer role."
             )
-        return False, MANAGEMENT_PERMISSION_ERROR if management else STATS_PERMISSION_ERROR
-    if response.status_code == 404:
+        return False, MANAGEMENT_PERMISSION_ERROR if schema_name in MANAGEMENT_PRIMARY_KEYS else STATS_PERMISSION_ERROR
+    if status == 404:
         return False, "Unity found no organization with that ID. Use the Organization core ID from Settings."
     return False, "Could not connect to Unity. Try again in a minute."

@@ -38,6 +38,7 @@ _TIMESTAMP: IncrementalField = {
 class UnityAdsEndpointConfig:
     breakdowns: tuple[str, ...]
     primary_keys: tuple[str, ...]
+    # Unity counts the stats quota per IP address. After a 429, a retry resumes at the saved window.
     window_days: int
     report: str = "acquisitions"
     metrics: tuple[str, ...] = METRICS
@@ -71,10 +72,12 @@ MANAGEMENT_PRIMARY_KEYS: dict[str, tuple[str, ...]] = {
 }
 
 ENDPOINTS = (*UNITY_ADS_ENDPOINTS, *MANAGEMENT_PRIMARY_KEYS)
-SYNC_DEFAULTS = dict.fromkeys(MANAGEMENT_PRIMARY_KEYS, False)
+# SKAN is opt-in to leave room for retries in the shared stats quota.
+SYNC_DEFAULTS = dict.fromkeys((*MANAGEMENT_PRIMARY_KEYS, "skan_daily"), False)
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {name: [_TIMESTAMP] for name in UNITY_ADS_ENDPOINTS}
 
 LOOKBACK: dict[str, int] = dict.fromkeys(UNITY_ADS_ENDPOINTS, LOOKBACK_SECONDS)
 
+# The stats tables read the last 30 days again on each sync. Appending would duplicate those rows.
 MERGE_ONLY = tuple(UNITY_ADS_ENDPOINTS)

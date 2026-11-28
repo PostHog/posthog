@@ -7,6 +7,7 @@ import time_machine
 
 import requests
 
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
 from products.warehouse_sources.sources.sdk.testing import (
     DriveResult,
     RecordedRequest,
@@ -90,7 +91,7 @@ class TestWindows:
 
     @pytest.mark.parametrize(
         ("endpoint", "expected_requests"),
-        [("campaigns_daily", 4), ("campaigns_daily_by_country", 12), ("skan_daily", 12)],
+        [("campaigns_daily", 4), ("campaigns_daily_by_country", 12)],
     )
     def test_a_first_sync_keeps_requests_within_the_shared_quota(self, endpoint: str, expected_requests: int) -> None:
         result = _run(endpoint, always(ScriptedResponse(status=204)))
@@ -221,15 +222,51 @@ class TestManagementTables:
         assert isinstance(result.raised, ValueError)
         assert result.paths == ["/advertise/v1/organizations/5772916123937/apps"]
 
-    @pytest.mark.parametrize("endpoint", ["cpi_bids", "source_bids"])
-    def test_empty_apps_checkpoint_without_yielding_rows(self, endpoint: str) -> None:
+    def test_empty_apps_checkpoint_without_yielding_rows(self) -> None:
         app_ids = [f"{index:024x}" for index in range(5)]
-        result = _run(endpoint, [_results(*({"id": app_id} for app_id in app_ids)), *[_results()] * 5])
+        result = _run("cpi_bids", [_results(*({"id": app_id} for app_id in app_ids)), *[_results()] * 5])
 
         assert result.raised is None
         assert result.items == []
         assert result.committed_states == [
             *(UnityAdsResumeConfig(next_app_id=app_id) for app_id in app_ids[1:]),
+            UnityAdsResumeConfig(apps_offset=1000),
+        ]
+
+    @pytest.mark.parametrize("endpoint", ["campaigns", "source_bids"])
+    def test_incomplete_child_response_fails_without_advancing_the_checkpoint(self, endpoint: str) -> None:
+        responses = [_results({"id": "a" * 24})]
+        if endpoint == "campaigns":
+            responses.append(_results({"id": "b" * 24}, total=2))
+        else:
+            responses.extend([_results({"id": "b" * 24}), _results({"country": "US", "sourceAppId": "demo"}, total=2)])
+
+        result = _run(endpoint, responses)
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+        assert "fewer management rows" in str(result.raised)
+        assert result.rows == []
+        assert result.committed_states == []
+
+    def test_bid_sync_skips_deleted_parents_and_keeps_later_rows(self) -> None:
+        missing_app, app_id, missing_campaign, campaign_id = (letter * 24 for letter in "abcd")
+        bid = {"country": "US", "bid": "0.201"}
+        result = _run(
+            "cpi_bids",
+            [
+                _results({"id": missing_app}, {"id": app_id}),
+                ScriptedResponse(status=404),
+                _results({"id": missing_campaign}, {"id": campaign_id}),
+                ScriptedResponse(status=404),
+                _results(bid),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{**bid, "campaignSetId": app_id, "campaignId": campaign_id}]
+        assert result.committed_states == [
+            UnityAdsResumeConfig(next_app_id=app_id),
+            UnityAdsResumeConfig(next_app_id=app_id, next_campaign_id=campaign_id),
             UnityAdsResumeConfig(apps_offset=1000),
         ]
 
@@ -339,6 +376,32 @@ class TestValidateCredentials:
             "/advertise/v1/organizations/5772916123937/apps",
         ]
         assert network.requests_log[1].param("limit") == "1"
+
+    @pytest.mark.parametrize(
+        ("stats_status", "management_status", "unavailable", "role"),
+        [
+            (403, 200, {"campaigns_daily", "skan_daily"}, "Advertise Stats API Viewer"),
+            (204, 403, {"apps", "source_bids"}, "Advertise API Viewer"),
+            (429, 503, set(), ""),
+        ],
+    )
+    def test_schema_picker_reports_only_denied_api_access(
+        self, stats_status: int, management_status: int, unavailable: set[str], role: str
+    ) -> None:
+        config = UnityAdsSourceConfig(organization_id="5772916123937", key_id="kid", secret_key="ksecret")
+        endpoints = ["campaigns_daily", "skan_daily", "apps", "source_bids"]
+        with scripted_network(
+            [ScriptedResponse(status=stats_status), ScriptedResponse(status=management_status)]
+        ) as network:
+            permissions = UnityAdsSource().get_endpoint_permissions(config, team_id=1, endpoints=endpoints)
+
+        assert set(permissions) == set(endpoints)
+        assert {name for name, reason in permissions.items() if reason is not None} == unavailable
+        assert all(role in (permissions[name] or "") for name in unavailable)
+        assert [request.path for request in network.requests_log] == [
+            "/advertise/stats/v2/organizations/5772916123937/reports/acquisitions",
+            "/advertise/v1/organizations/5772916123937/apps",
+        ]
 
     @pytest.mark.parametrize(
         ("schema_name", "path", "role"),

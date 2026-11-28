@@ -30,6 +30,7 @@ from products.warehouse_sources.sources.unity_ads.unity_ads import (
     INVALID_ORGANIZATION_ID,
     MANAGEMENT_PERMISSION_ERROR,
     UnityAdsResumeConfig,
+    unity_ads_endpoint_permissions,
     unity_ads_source,
     validate_credentials as validate_unity_credentials,
 )
@@ -94,6 +95,11 @@ class UnityAdsSource(ResumableSource[UnityAdsSourceConfig, UnityAdsResumeConfig]
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
         return validate_unity_credentials(config.organization_id, config.key_id, config.secret_key, schema_name)
+
+    def get_endpoint_permissions(
+        self, config: UnityAdsSourceConfig, team_id: int, endpoints: list[str], api_version: str | None = None
+    ) -> dict[str, str | None]:
+        return unity_ads_endpoint_permissions(config.organization_id, config.key_id, config.secret_key, endpoints)
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[UnityAdsResumeConfig]:
         return ResumableSourceManager[UnityAdsResumeConfig](inputs, UnityAdsResumeConfig)
