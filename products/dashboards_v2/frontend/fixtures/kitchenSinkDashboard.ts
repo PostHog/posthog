@@ -484,9 +484,9 @@ export const kitchenSinkDashboard: Dashboard = {
                     metric('Error rate', SQL.aiErrorRate, 'percentage'),
                 ]),
                 tile('apm-p95', 20, 0, 4, METRIC_ROWS, chart('p95 latency', SQL.p95, { type: 'gauge', options: { max: 3000 } })),
-                tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status) (rate(http_server_requests_total[5m]))', { type: 'combo' })),
-                tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_server_duration_bucket[5m])))', { type: 'line' })),
-                tile('apm-latency-heatmap', 0, 24, 24, 14, metrics('Latency distribution', 'sum by (le) (rate(http_server_duration_bucket[5m]))', { type: 'heatmap' })),
+                tile('apm-requests', 0, 8, 12, 16, metrics('Requests and errors', 'sum by (status_class) (label_replace(rate(http_requests_total[5m]), "status_class", "${1}xx", "status", "([0-9]).*"))', { type: 'combo' })),
+                tile('apm-latency', 12, 8, 12, 16, metrics('Latency', 'histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))', { type: 'line' })),
+                tile('apm-latency-heatmap', 0, 24, 24, 14, metrics('Latency distribution', 'sum by (le) (rate(http_request_duration_seconds_bucket[5m]))', { type: 'heatmap' })),
                 section('apm-endpoints', 0, 38, 24, 'Endpoints', [
                     tile('apm-slowest', 0, 0, 12, 14, traces('Slowest operations', 'posthog-web-django', { type: 'bar-list' })),
                     tile('apm-busiest', 12, 0, 12, 14, traces('Busiest operations', 'posthog-web-django', { type: 'bar', options: { stack: true } })),
