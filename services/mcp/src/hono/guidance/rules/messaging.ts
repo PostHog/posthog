@@ -3,13 +3,30 @@ import { areaFlag } from 'products/workflows/mcp/messagingPlacements'
 import type { GuidanceCall } from '../engine'
 import type { GuidanceRule } from '../rule-schema'
 
-const COHORT_FILTER_ON_BEHAVIOR_OR_COHORT = /"type":"(behavioral|cohort)"/
+const LEAF_TYPES_A_BATCH_AUDIENCE_REJECTS = new Set(['behavioral', 'cohort'])
+
+function isStaticCohort(args: Record<string, unknown> | undefined): boolean {
+    return Object.entries(args ?? {}).some(
+        ([key, value]) => key.replace(/[_-]/g, '').toLowerCase() === 'isstatic' && value === true
+    )
+}
+
+function hasLeafABatchAudienceRejects(node: unknown): boolean {
+    if (Array.isArray(node)) {
+        return node.some(hasLeafABatchAudienceRejects)
+    }
+    if (typeof node !== 'object' || node === null) {
+        return false
+    }
+    const { type, values } = node as { type?: unknown; values?: unknown }
+    return Array.isArray(values)
+        ? hasLeafABatchAudienceRejects(values)
+        : typeof type === 'string' && LEAF_TYPES_A_BATCH_AUDIENCE_REJECTS.has(type)
+}
 
 function batchAudienceAccepts(call: GuidanceCall): boolean {
-    return (
-        call.args?.is_static === true ||
-        !COHORT_FILTER_ON_BEHAVIOR_OR_COHORT.test(JSON.stringify(call.args?.filters ?? null))
-    )
+    const filters = call.args?.filters as { properties?: unknown } | undefined
+    return isStaticCohort(call.args) || !hasLeafABatchAudienceRejects(filters?.properties)
 }
 
 const rules: GuidanceRule[] = [

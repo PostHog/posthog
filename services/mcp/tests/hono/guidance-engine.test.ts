@@ -444,7 +444,24 @@ describe('GuidanceEngine', () => {
         const messagingRule = GUIDANCE_RULES.find((r) => r.id === 'cohorts-create-messaging')!
         const cohortsCreate: GuidanceCall = { toolName: 'cohorts-create', args: { name: 'Churned' }, isError: false }
         const behavioralFilters = {
-            properties: { type: 'OR', values: [{ key: '$pageview', type: 'behavioral', value: 'performed_event' }] },
+            properties: {
+                type: 'OR',
+                values: [
+                    {
+                        type: 'OR',
+                        values: [
+                            {
+                                key: '$pageview',
+                                type: 'behavioral',
+                                value: 'performed_event',
+                                event_type: 'events',
+                                time_value: 30,
+                                time_interval: 'day',
+                            },
+                        ],
+                    },
+                ],
+            },
         }
         let exposures: string[] = []
         const messagingState = (
@@ -498,8 +515,22 @@ describe('GuidanceEngine', () => {
             })
         })
 
-        it('offers the broadcast for a static cohort that filters on event behavior', async () => {
-            const call = { ...cohortsCreate, args: { name: 'Active', is_static: true, filters: behavioralFilters } }
+        it.each([
+            ['a static cohort that filters on event behavior', { is_static: true, filters: behavioralFilters }],
+            ['a static cohort named with the exec spelling', { isStatic: true, filters: behavioralFilters }],
+            [
+                'a person property whose value holds a type key',
+                {
+                    filters: {
+                        properties: {
+                            type: 'OR',
+                            values: [{ key: 'plan', type: 'person', operator: 'exact', value: { type: 'behavioral' } }],
+                        },
+                    },
+                },
+            ],
+        ])('offers the broadcast for %s', async (_label, args) => {
+            const call = { ...cohortsCreate, args: { name: 'Active', ...args } }
             await expect(
                 new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(
                     messagingState('after_cohorts_create'),
@@ -547,7 +578,12 @@ describe('GuidanceEngine', () => {
                     ...cohortsCreate,
                     args: {
                         name: 'Wrapper',
-                        filters: { properties: { type: 'OR', values: [{ type: 'cohort', value: 3 }] } },
+                        filters: {
+                            properties: {
+                                type: 'OR',
+                                values: [{ type: 'OR', values: [{ key: 'id', type: 'cohort', value: 3 }] }],
+                            },
+                        },
                     },
                 },
             ],
