@@ -1545,6 +1545,9 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
         instance = cast(Optional[ExternalDataSchema], self.instance)
+        if instance is not None and attrs.get("should_sync") is True and not instance.should_sync:
+            self._validate_sync_enablement(instance)
+
         override = attrs["api_version"] if "api_version" in attrs else (instance.api_version if instance else None)
         if override:
             sync_type = attrs.get("sync_type", instance.sync_type if instance else None)
@@ -1575,6 +1578,23 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                         }
                     )
         return attrs
+
+    def _validate_sync_enablement(self, instance: ExternalDataSchema) -> None:
+        source = instance.source
+        try:
+            source_impl = SourceRegistry.get_source(source.source_type)
+        except ValueError:
+            return
+
+        try:
+            sync_config_error = source_impl.validate_sync_config(
+                lambda: source_impl.parse_config(SourceInputsStore.load(source)),
+                lambda name: name == instance.name,
+            )
+        except UnreadableSourceInputsError as error:
+            raise ValidationError({"should_sync": UNREADABLE_SOURCE_CONFIG_ERROR}) from error
+        if sync_config_error:
+            raise ValidationError({"should_sync": sync_config_error})
 
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_live_query_unavailable_reason(self, schema: ExternalDataSchema) -> str | None:

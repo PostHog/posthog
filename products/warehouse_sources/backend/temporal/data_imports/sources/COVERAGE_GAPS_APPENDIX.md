@@ -531,7 +531,7 @@ Note: Verified against the published OpenAPI spec linked from https://alguna.com
 
 ## AlphaVantage — **thin**
 
-Today (25): `balance_sheet`, `cash_flow`, `company_overview`, `cpi`, `dividends`, `earnings`, `earnings_calendar`, `earnings_estimates`, `etf_profile`, `federal_funds_rate`, `global_quote`, `income_statement`, `insider_transactions`, `institutional_holdings`, `listing_status`, `news_sentiment`, `real_gdp`, `shares_outstanding`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`, `treasury_yield`, `unemployment`
+Today (33): `balance_sheet`, `cash_flow`, `company_overview`, `cpi`, `dividends`, `durables`, `earnings`, `earnings_calendar`, `earnings_call_transcript`, `earnings_estimates`, `etf_profile`, `federal_funds_rate`, `global_quote`, `income_statement`, `inflation`, `insider_transactions`, `institutional_holdings`, `ipo_calendar`, `listing_status`, `news_sentiment`, `nonfarm_payroll`, `previous_session_options`, `real_gdp`, `real_gdp_per_capita`, `retail_sales`, `shares_outstanding`, `splits`, `time_series_daily`, `time_series_daily_adjusted`, `time_series_monthly`, `time_series_weekly`, `treasury_yield`, `unemployment`
 
 Diffed against: <https://www.alphavantage.co/documentation/>
 
@@ -552,10 +552,10 @@ Note: Single /query endpoint parameterized by `function=`; the docs page exposes
 
 Re-audited 2026-11-19 against: <https://www.alphavantage.co/documentation/>
 
-- [ ] `IPO_CALENDAR (GET /query?function=IPO_CALENDAR)` — upcoming and recent IPOs, to join with listing_status (medium)
-- [ ] `EARNINGS_CALL_TRANSCRIPT (GET /query?function=EARNINGS_CALL_TRANSCRIPT)` — per-symbol and quarter call transcripts with sentiment tags (medium)
-- [ ] `HISTORICAL_OPTIONS (GET /query?function=HISTORICAL_OPTIONS)` — end-of-day option chains per symbol and date (medium)
-- [ ] `INFLATION, NONFARM_PAYROLL, RETAIL_SALES, DURABLES, REAL_GDP_PER_CAPITA (GET /query?function=...)` — extra macro series next to the synced real_gdp, cpi and unemployment (medium)
+- [x] `IPO_CALENDAR (GET /query?function=IPO_CALENDAR)` - IPOs expected in the next three months (medium)
+- [x] `EARNINGS_CALL_TRANSCRIPT (GET /query?function=EARNINGS_CALL_TRANSCRIPT)` - speaker turns with sentiment for a configured fiscal quarter (medium)
+- [x] `HISTORICAL_OPTIONS (GET /query?function=HISTORICAL_OPTIONS)` - `previous_session_options` holds one trading session and replaces all rows on each sync (medium)
+- [x] `INFLATION, NONFARM_PAYROLL, RETAIL_SALES, DURABLES, REAL_GDP_PER_CAPITA (GET /query?function=...)` - five US economic series (medium)
 - [ ] `CONGRESS_TRADES (GET /query?function=CONGRESS_TRADES)` — stock trades disclosed by US legislators (low)
 - [ ] `INDEX_DATA and INDEX_CATALOG (GET /query?function=INDEX_DATA)` — index level history and the index catalog (low)
 

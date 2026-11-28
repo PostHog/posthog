@@ -38,7 +38,7 @@ Algolia,application_id api_key region,,,index_name,,algolia
 Alguna,api_key,,,,,alguna
 Allegro,,,,,,allegro
 AlpacaBrokerAPI,,,,,,alpaca-broker-api
-AlphaVantage,api_key,,,symbols,,alpha-vantage
+AlphaVantage,api_key,,,symbols transcript_quarter,,alpha-vantage
 AmazonAds,region client_id client_secret refresh_token,,,,,amazon-ads
 AmazonCloudWatch,aws_auth aws_region,aws_auth=role,,log_group_names metric_queries start_date,,amazon-cloud-watch
 AmazonEventBridge,,,,,,amazon-event-bridge

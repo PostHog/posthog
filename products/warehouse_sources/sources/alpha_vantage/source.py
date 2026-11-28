@@ -1,10 +1,13 @@
+from collections.abc import Callable
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.alpha_vantage._config import AlphaVantageSourceConfig
 from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
+    TRANSCRIPT_QUARTER_ERROR,
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
     validate_symbols,
+    validate_transcript_quarter,
 )
 from products.warehouse_sources.sources.alpha_vantage.settings import ALPHA_VANTAGE_ENDPOINTS
 from products.warehouse_sources.sources.sdk import (
@@ -43,6 +46,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             # it, so fail fast. The next scheduled sync retries once the quota resets.
             "Alpha Vantage API error [rate_limit_or_premium]": "Alpha Vantage returned a rate-limit or premium-only message. The free tier is limited to ~25 requests/day and some datasets require a paid plan. Wait for the quota to reset or upgrade your plan, then resync.",
             "Alpha Vantage API error [unexpected_response]": "Alpha Vantage returned an unexpected response. Please try again later.",
+            TRANSCRIPT_QUARTER_ERROR: TRANSCRIPT_QUARTER_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -80,6 +84,13 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
 
         return schemas
 
+    def validate_sync_config(
+        self, get_config: Callable[[], AlphaVantageSourceConfig], is_schema_enabled: Callable[[str], bool]
+    ) -> str | None:
+        if not is_schema_enabled("earnings_call_transcript"):
+            return None
+        return validate_transcript_quarter(get_config().transcript_quarter, required=True).error
+
     def validate_credentials(
         self,
         config: AlphaVantageSourceConfig,
@@ -90,6 +101,13 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         _, symbols_error = validate_symbols(config.symbols)
         if symbols_error:
             return False, symbols_error
+
+        if schema_name in (None, "earnings_call_transcript"):
+            validation = validate_transcript_quarter(
+                config.transcript_quarter, required=schema_name == "earnings_call_transcript"
+            )
+            if validation.error:
+                return False, validation.error
 
         if validate_alpha_vantage_credentials(config.api_key):
             return True, None
@@ -110,6 +128,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             db_incremental_field_last_value=inputs.db_incremental_field_last_value
             if inputs.should_use_incremental_field
             else None,
+            transcript_quarter=config.transcript_quarter,
         )
 
     @property
@@ -145,6 +164,16 @@ Note: the free tier is limited to roughly 25 requests per day, and each selected
                         type=SourceFieldInputConfigType.TEXT,
                         required=True,
                         placeholder="IBM, AAPL, MSFT",
+                        secret=False,
+                    ),
+                    SourceFieldInputConfig(
+                        name="transcript_quarter",
+                        sync_setting=True,
+                        label="Earnings call quarter",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="2024Q1",
+                        caption="Set a fiscal quarter to sync earnings call transcripts. If you change the quarter, the next sync replaces the old quarter's rows. Leave this field blank if you do not use that table.",
                         secret=False,
                     ),
                 ],

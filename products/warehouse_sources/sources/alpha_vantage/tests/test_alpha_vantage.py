@@ -10,11 +10,11 @@ from parameterized import parameterized
 from products.warehouse_sources.sources.alpha_vantage._config import AlphaVantageSourceConfig
 from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
     CSV_CHUNK_SIZE,
-    EARNINGS_CALENDAR_HORIZON,
     LISTING_STATES,
+    OPTIONS_CHUNK_SIZE,
     AlphaVantageAPIError,
     AlphaVantageRetryableError,
-    _earnings_calendar_rows,
+    _calendar_rows,
     _fetch,
     _fetch_csv,
     _news_rows,
@@ -329,6 +329,7 @@ class TestAlphaVantage:
         assert result.params("maturity") == maturities
         assert result.params("symbol") == [None] * len(maturities)
         assert [row.get("maturity") for row in result.rows] == maturities
+        assert [row["value"] for row in result.rows] == ["1"] * len(maturities)
 
     def test_get_rows_fails_an_economic_series_on_error_message(self) -> None:
         result = _driver().run("cpi", [ScriptedResponse(json={"Error Message": "Invalid API call"})])
@@ -714,11 +715,11 @@ class TestAlphaVantage:
             f"SYM{i},Co {i},2026-10-22,2026-09-30,1.0,USD,post-market\n" for i in range(CSV_CHUNK_SIZE + 1)
         )
         session = _session_returning([_text_response(body)])
-        batches = list(_earnings_calendar_rows(session, "KEY", MagicMock()))
+        batches = list(_calendar_rows(session, "KEY", ALPHA_VANTAGE_ENDPOINTS["earnings_calendar"], MagicMock()))
         assert [len(batch) for batch in batches] == [CSV_CHUNK_SIZE, 1]
         params = session.get.call_args.kwargs["params"]
         assert params["function"] == "EARNINGS_CALENDAR"
-        assert params["horizon"] == EARNINGS_CALENDAR_HORIZON
+        assert params["horizon"] == "12month"
         # Market-wide, so the request carries no symbol.
         assert "symbol" not in params
         assert batches[0][0] == {
@@ -734,7 +735,7 @@ class TestAlphaVantage:
     def test_earnings_calendar_rows_skips_a_json_reply(self) -> None:
         session = _session_returning([_text_response("{}")])
         logger = MagicMock()
-        assert _collect_rows(_earnings_calendar_rows(session, "KEY", logger)) == []
+        assert _collect_rows(_calendar_rows(session, "KEY", ALPHA_VANTAGE_ENDPOINTS["earnings_calendar"], logger)) == []
         logger.warning.assert_called_once()
 
     def test_get_rows_does_not_fan_out_the_earnings_calendar_over_symbols(self) -> None:
@@ -746,6 +747,57 @@ class TestAlphaVantage:
         assert len(result.requests) == 1
         assert result.requests[0].param("symbol") is None
         assert result.rows == [{"symbol": "IBM", "reportDate": "2026-10-22", "fiscalDateEnding": "2026-09-30"}]
+
+    def test_ipo_calendar_uses_a_single_market_wide_csv_request(self) -> None:
+        csv_body = b'symbol,name,ipoDate,priceRangeLow,priceRangeHigh,currency,exchange\nACME,"Acme, Inc.",2026-12-01,,16,USD,NYSE\n'
+        result = _driver("ACME, EXMP").run("ipo_calendar", [ScriptedResponse(body=csv_body)])
+
+        assert result.raised is None
+        assert result.params("function") == ["IPO_CALENDAR"]
+        assert result.params("symbol") == [None]
+        assert result.params("horizon") == [None]
+        assert result.rows == [
+            {
+                "symbol": "ACME",
+                "name": "Acme, Inc.",
+                "ipoDate": "2026-12-01",
+                "priceRangeLow": None,
+                "priceRangeHigh": "16",
+                "currency": "USD",
+                "exchange": "NYSE",
+            }
+        ]
+
+    def test_previous_session_options_batches_contracts_for_each_symbol(self) -> None:
+        symbol_counts = [("ACME", OPTIONS_CHUNK_SIZE + 1), ("EXMP", 1)]
+        result = _driver("ACME, EXMP").run(
+            "previous_session_options",
+            [
+                ScriptedResponse(
+                    json={
+                        "data": [
+                            *(
+                                {"contractID": f"{symbol}261218C{strike:08d}", "date": "2026-11-27", "last": "1.25"}
+                                for strike in range(count)
+                            ),
+                            {"date": "2026-11-27"},
+                        ]
+                    }
+                )
+                for symbol, count in symbol_counts
+            ],
+        )
+
+        assert result.raised is None
+        assert result.params("function") == ["HISTORICAL_OPTIONS", "HISTORICAL_OPTIONS"]
+        assert result.params("symbol") == ["ACME", "EXMP"]
+        assert result.params("date") == [None, None]
+        assert [len(batch) for batch in result.items] == [OPTIONS_CHUNK_SIZE, 1, 1]
+        assert result.rows == [
+            {"symbol": symbol, "contract_id": f"{symbol}261218C{strike:08d}", "date": "2026-11-27", "last": "1.25"}
+            for symbol, count in symbol_counts
+            for strike in range(count)
+        ]
 
     @parameterized.expand(
         [
