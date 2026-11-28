@@ -56,6 +56,8 @@ _NULL_PLACEHOLDERS = frozenset({"none", "null", ""})
 # The economic series come from FRED, which writes a missing observation (e.g. a market holiday) as ".".
 _ECONOMIC_MISSING_VALUE = "."
 
+TRANSCRIPT_QUARTER_ERROR = "Enter an earnings call quarter in YYYYQn format, such as 2024Q1. Use 2010Q1 or later."
+
 
 class AlphaVantageRetryableError(Exception):
     pass
@@ -537,7 +539,7 @@ def validate_transcript_quarter(value: str | None, *, required: bool) -> tuple[s
     if not quarter and not required:
         return quarter, None
     if not re.fullmatch(r"[0-9]{4}Q[1-4]", quarter) or quarter < "2010Q1":
-        return quarter, "Enter an earnings call quarter in YYYYQn format, such as 2024Q1. Use 2010Q1 or later."
+        return quarter, TRANSCRIPT_QUARTER_ERROR
     return quarter, None
 
 

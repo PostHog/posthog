@@ -1,7 +1,9 @@
+from collections.abc import Callable
 from typing import Optional, cast
 
 from products.warehouse_sources.sources.alpha_vantage._config import AlphaVantageSourceConfig
 from products.warehouse_sources.sources.alpha_vantage.alpha_vantage import (
+    TRANSCRIPT_QUARTER_ERROR,
     alpha_vantage_source,
     validate_credentials as validate_alpha_vantage_credentials,
     validate_symbols,
@@ -44,6 +46,7 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             # it, so fail fast. The next scheduled sync retries once the quota resets.
             "Alpha Vantage API error [rate_limit_or_premium]": "Alpha Vantage returned a rate-limit or premium-only message. The free tier is limited to ~25 requests/day and some datasets require a paid plan. Wait for the quota to reset or upgrade your plan, then resync.",
             "Alpha Vantage API error [unexpected_response]": "Alpha Vantage returned an unexpected response. Please try again later.",
+            TRANSCRIPT_QUARTER_ERROR: TRANSCRIPT_QUARTER_ERROR,
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
@@ -80,6 +83,14 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
             schemas = [s for s in schemas if s.name in names_set]
 
         return schemas
+
+    def validate_sync_config(
+        self, config: AlphaVantageSourceConfig, is_schema_enabled: Callable[[str], bool]
+    ) -> str | None:
+        _, quarter_error = validate_transcript_quarter(config.transcript_quarter, required=True)
+        if quarter_error and is_schema_enabled("earnings_call_transcript"):
+            return quarter_error
+        return None
 
     def validate_credentials(
         self,

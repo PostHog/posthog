@@ -16,6 +16,23 @@ class TestAlphaVantageSource:
 
     @parameterized.expand(
         [
+            ("enabled_empty", "", {"earnings_call_transcript"}, False),
+            ("enabled_null", None, {"earnings_call_transcript"}, False),
+            ("enabled_valid", "2024Q1", {"earnings_call_transcript"}, True),
+            ("disabled_empty", "", {"earnings_calendar"}, True),
+        ]
+    )
+    def test_validate_sync_config_checks_quarter_for_enabled_transcripts(
+        self, _name: str, quarter: str | None, enabled_schemas: set[str], expected_valid: bool
+    ) -> None:
+        config = AlphaVantageSourceConfig(api_key="KEY", symbols="ACME", transcript_quarter=quarter)
+
+        error = AlphaVantageSource().validate_sync_config(config, enabled_schemas.__contains__)
+
+        assert (error is None) is expected_valid
+
+    @parameterized.expand(
+        [
             ("valid", "KEY", "IBM", True, True, None),
             ("invalid_key", "KEY", "IBM", False, False, "Invalid Alpha Vantage API key"),
             ("no_symbols", "KEY", "  ", True, False, "Enter at least one symbol (e.g. IBM, AAPL)"),
