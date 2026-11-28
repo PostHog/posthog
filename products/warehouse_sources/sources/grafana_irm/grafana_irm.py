@@ -2,8 +2,9 @@ import re
 import copy
 import dataclasses
 from collections.abc import Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from typing import Any, Optional
-from urllib.parse import SplitResult, urlsplit
+from urllib.parse import SplitResult, quote, urlsplit
 
 import requests
 from requests import Request, Response
@@ -17,6 +18,7 @@ from products.warehouse_sources.sources.grafana_irm.settings import (
 from products.warehouse_sources.sources.sdk import (
     BasePaginator,
     BearerTokenAuth,
+    ClientConfig,
     Endpoint,
     EndpointResource,
     PageNumberPaginator,
@@ -25,6 +27,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SinglePagePaginator,
     SourceResponse,
+    build_dependent_resource,
     make_tracked_session,
     reach_safe_point,
     rest_api_resource,
@@ -148,6 +151,18 @@ def _drop_fields(fields: tuple[str, ...]) -> Callable[[dict[str, Any]], dict[str
     return drop
 
 
+def _client_config(config: GrafanaIRMEndpointConfig, token: str, stack_url: str, oncall_api_url: str) -> ClientConfig:
+    return {
+        "base_url": _base_url(config, stack_url, oncall_api_url),
+        "headers": _headers(config, stack_url),
+        "auth": {"type": "bearer", "token": token},
+        "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
+        "allowed_hosts": [],
+        "allow_redirects": False,
+        "request_timeout": REQUEST_TIMEOUT_SECONDS,
+    }
+
+
 def _resource_config(
     config: GrafanaIRMEndpointConfig, token: str, stack_url: str, oncall_api_url: str
 ) -> RESTAPIConfig:
@@ -174,15 +189,7 @@ def _resource_config(
         resource["data_map"] = _drop_fields(config.dropped_fields)
 
     return {
-        "client": {
-            "base_url": _base_url(config, stack_url, oncall_api_url),
-            "headers": _headers(config, stack_url),
-            "auth": {"type": "bearer", "token": token},
-            "paginator": _oncall_paginator() if config.api == "oncall" else IncidentCursorPaginator(),
-            "allowed_hosts": [],
-            "allow_redirects": False,
-            "request_timeout": REQUEST_TIMEOUT_SECONDS,
-        },
+        "client": _client_config(config, token, stack_url, oncall_api_url),
         "resources": [resource],
     }
 
@@ -287,14 +294,17 @@ def _incident_membership_pages(client: RESTClient) -> Iterator[list[dict[str, An
                 reach_safe_point()
 
 
-def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]]]:
-    """Fan out over every incident and yield its activity timeline page by page.
+def _encode_schedule_id(schedule: dict[str, Any]) -> dict[str, Any] | list[dict[str, Any]]:
+    schedule_id = schedule.get("id")
+    if not schedule_id:
+        return []
+    return {**schedule, "encoded_schedule_id": quote(schedule_id, safe="")}
 
-    The activity query takes the incident ID in the POST body, which the declarative fan-out can
-    only bind into the URL path, so this walks both levels with the same client.
-    """
+
+def _incident_child_pages(client: RESTClient, child: GrafanaIRMEndpointConfig) -> Iterator[list[dict[str, Any]]]:
+    """The declarative fan-out cannot bind the parent ID into the POST body."""
+
     incidents = GRAFANA_IRM_ENDPOINTS["incidents"]
-    activity = GRAFANA_IRM_ENDPOINTS["incident_activity"]
     incident_query = {"query": {"limit": INCIDENT_PAGE_SIZE, "orderField": "createdTime", "orderDirection": "ASC"}}
 
     for incident_page in client.paginate(
@@ -309,19 +319,21 @@ def _incident_activity_pages(client: RESTClient) -> Iterator[list[dict[str, Any]
             incident_id = incident.get("incidentID")
             if not incident_id:
                 continue
-            body = copy.deepcopy(activity.json)
+            body = copy.deepcopy(child.json)
             body["query"]["incidentID"] = incident_id
-            for activity_page in client.paginate(
-                activity.path,
+            for child_page in client.paginate(
+                child.path,
                 method="post",
                 json=body,
                 paginator=IncidentCursorPaginator(),
-                data_selector=activity.data_selector,
+                data_selector=child.data_selector,
                 data_selector_required=True,
                 data_selector_empty_ok=True,
             ):
-                if activity_page:
-                    yield activity_page
+                if child_page:
+                    yield child_page
+                else:
+                    reach_safe_point()
 
 
 def grafana_irm_source(
@@ -337,6 +349,28 @@ def grafana_irm_source(
     stack_url = normalize_stack_url(stack_url)
     oncall_api_url = normalize_oncall_api_url(oncall_api_url)
 
+    if config.fanout is not None:
+        end = datetime.now(UTC).date()
+        parent = GRAFANA_IRM_ENDPOINTS[config.fanout.parent_name]
+        resource = build_dependent_resource(
+            endpoint_configs=GRAFANA_IRM_ENDPOINTS,
+            child_endpoint=endpoint,
+            fanout=config.fanout,
+            client_config=_client_config(config, token, stack_url, oncall_api_url),
+            path_format_values={},
+            team_id=team_id,
+            job_id=job_id,
+            db_incremental_field_last_value=None,
+            page_size_param="perpage",
+            parent_data_map=_encode_schedule_id,
+            parent_endpoint_extra={"data_selector": parent.data_selector, "data_selector_required": True},
+            child_endpoint_extra={"data_selector": config.data_selector, "data_selector_required": True},
+            child_params_extra={"start_date": (end - timedelta(days=365)).isoformat(), "end_date": end.isoformat()},
+        )
+        return SourceResponse(
+            name=endpoint, items=lambda: resource, primary_keys=list(config.primary_keys), supports_resume=False
+        )
+
     partition_kwargs: dict[str, Any] = {}
     if config.partition_key:
         partition_kwargs = {
@@ -348,7 +382,8 @@ def grafana_irm_source(
         }
 
     fan_out_pages: dict[str, Callable[[], Iterator[list[dict[str, Any]]]]] = {
-        "incident_activity": lambda: _incident_activity_pages(_incident_client(token, stack_url)),
+        "incident_activity": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
+        "incident_key_updates": lambda: _incident_child_pages(_incident_client(token, stack_url), config),
         "incident_membership": lambda: _incident_membership_pages(_incident_client(token, stack_url)),
         "alerts": lambda: _alert_pages(_oncall_client(token, stack_url, oncall_api_url)),
     }
@@ -357,6 +392,7 @@ def grafana_irm_source(
             name=endpoint,
             items=fan_out_pages[endpoint],
             primary_keys=list(config.primary_keys),
+            supports_resume=endpoint != "incident_key_updates",
             **partition_kwargs,
         )
 
@@ -423,7 +459,7 @@ def validate_credentials(
 
     if probe_oncall:
         # A fan-out child needs a parent ID, so probe its parent, which takes the same permission.
-        probe_name = (config.parent or config.name) if config is not None else "alert_groups"
+        probe_name = config.probe_name if config is not None else "alert_groups"
         oncall_path = GRAFANA_IRM_ENDPOINTS[probe_name].path
         status = _probe(
             session,

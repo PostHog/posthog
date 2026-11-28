@@ -109,6 +109,18 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "shifts": "IDs of the on-call shifts in the schedule.",
         },
     },
+    "final_schedule_shifts": {
+        "description": "On-call shifts after rotations and overrides. The table covers the last 365 complete UTC days.",
+        "docs_url": f"{_ONCALL_DOCS}schedules/#export-a-schedules-final-shifts",
+        "columns": {
+            "schedule_id": "ID of the schedule that contains the shift.",
+            "user_pk": "ID of the user on call during the shift.",
+            "user_email": "Email address of the user on call.",
+            "user_username": "Name of the user on call.",
+            "shift_start": "Start of the shift within the requested period.",
+            "shift_end": "End of the shift within the requested period.",
+        },
+    },
     "on_call_shifts": {
         "description": "A shift or rotation that belongs to one or more on-call schedules.",
         "docs_url": f"{_ONCALL_DOCS}on_call_shifts/",
@@ -197,6 +209,23 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "subjectUser": "The user the item is about, if any.",
             "tags": "Tags attached to the item.",
             "url": "Link attached to the item.",
+        },
+    },
+    "incident_key_updates": {
+        "description": "A significant update or milestone in an incident.",
+        "docs_url": f"{_INCIDENT_DOCS}reference/#querykeyupdates",
+        "columns": {
+            "id": "Unique identifier for the key update.",
+            "incidentID": "ID of the incident that contains the update.",
+            "orgID": "ID of the organization that owns the update.",
+            "title": "Short summary of the update.",
+            "content": "Details of the update.",
+            "contentType": "Format of the update content.",
+            "scope": "Audience of the update: internal, public, or private.",
+            "statusID": "ID of the incident status at the time of the update.",
+            "severityID": "ID of the incident severity at the time of the update.",
+            "createdTime": "When the update was created.",
+            "modifiedTime": "When the update was last modified.",
         },
     },
     "incident_membership": {
