@@ -80,14 +80,11 @@ impl BlockEditor {
         #[cfg(not(target_os = "macos"))]
         let html: Option<String> = None;
         for entry in &item.entries {
-            match entry {
-                ClipboardEntry::String(s) => {
-                    text.push_str(s.text());
-                    if metadata.is_none() {
-                        metadata = s.metadata.clone();
-                    }
+            if let ClipboardEntry::String(s) = entry {
+                text.push_str(s.text());
+                if metadata.is_none() {
+                    metadata = s.metadata.clone();
                 }
-                _ => {}
             }
         }
         let head_kind = self.doc.block(self.sel.head.block).kind;

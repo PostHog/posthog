@@ -159,6 +159,11 @@ function __fire(id) {
 
 // ---- Elements ----------------------------------------------------------------
 function __children(list) {
+    if (list.length === 0) return []
+    if (list.length === 1 && !Array.isArray(list[0])) {
+        const c = list[0]
+        return c == null || c === false || c === true || c === '' ? [] : [c]
+    }
     return list.flat(Infinity).filter((c) => c !== null && c !== undefined && c !== false && c !== true && c !== '')
 }
 function __el(type) {
@@ -173,7 +178,7 @@ function __el(type) {
 }
 function __leaf(type, key) {
     return function (value, props) {
-        const p = Object.assign({}, props || {})
+        const p = props ? Object.assign({}, props) : {}
         if (value !== undefined && value !== null) p[key] = typeof value === 'string' ? value : String(value)
         return { __t: type, props: p, children: [] }
     }
@@ -396,7 +401,10 @@ function __emit(node) {
             })
         else if (v !== undefined) p[k] = v
     }
-    return { t: node.__t, p, c: node.children.map(__emit), at: node.__at }
+    const t = node.__t
+    const c = node.children.map(__emit)
+    const at = node.__at
+    return at === undefined ? { t, p, c } : { t, p, c, at }
 }
 function __async(r) {
     if (r && typeof r.then === 'function') r.then(null, (e) => console.error(e))

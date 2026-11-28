@@ -50,29 +50,27 @@ impl Arrangement {
     /// `present` keys in their default order, placed by the stored layout.
     /// Keys the layout doesn't know go at the end of the loose items.
     pub(super) fn of(layout: &Layout, present: &[String]) -> Self {
-        let here: HashSet<&str> = present.iter().map(String::as_str).collect();
-        let mut grouped = HashSet::new();
+        let mut remaining: HashSet<&str> = present.iter().map(String::as_str).collect();
         let sections: Vec<Section> = layout
             .sections
             .iter()
             .map(|section| Section {
+                id: section.id,
+                name: section.name.clone(),
+                collapsed: section.collapsed,
                 items: section
                     .items
                     .iter()
-                    .filter(|k| here.contains(k.as_str()) && grouped.insert((*k).clone()))
+                    .filter(|k| remaining.remove(k.as_str()))
                     .cloned()
                     .collect(),
-                ..section.clone()
             })
             .collect();
-        let mut seen = HashSet::new();
         let loose = layout
             .loose
             .iter()
             .chain(present)
-            .filter(|k| {
-                here.contains(k.as_str()) && !grouped.contains(*k) && seen.insert(k.as_str())
-            })
+            .filter(|k| remaining.remove(k.as_str()))
             .cloned()
             .collect();
         Self { loose, sections }

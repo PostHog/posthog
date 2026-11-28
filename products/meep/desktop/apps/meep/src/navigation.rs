@@ -977,6 +977,21 @@ impl Desktop {
                     .child(self.section_header(section, lit == Some(section.id), cx)),
             );
             y += space + PITCH;
+            let mut section_height = |target, cx: &mut Context<Self>| {
+                meep_ui::gpui_kit::base::spring(
+                    ElementId::from(SharedString::from(format!("section-height-{}", section.id))),
+                    target,
+                    cx.theme().motion_tokens().spring_control,
+                    w,
+                    cx,
+                )
+            };
+            let folded_height = section.collapsed.then(|| section_height(0., cx));
+            if let Some(height) = folded_height.filter(|height| *height <= 0.5) {
+                section_tops.push(Vec::new());
+                y += height;
+                continue;
+            }
             let mut open = 0.;
             let mut tops = vec![];
             let mut body = ui::column().gap_0();
@@ -1006,13 +1021,7 @@ impl Desktop {
                 tops.push(y + open);
             }
             section_tops.push(tops);
-            let height = meep_ui::gpui_kit::base::spring(
-                ElementId::from(SharedString::from(format!("section-height-{}", section.id))),
-                if section.collapsed { 0. } else { open },
-                cx.theme().motion_tokens().spring_control,
-                w,
-                cx,
-            );
+            let height = folded_height.unwrap_or_else(|| section_height(open, cx));
             if height > 0.5 {
                 list = list.child(
                     div()

@@ -497,7 +497,10 @@ impl Client {
         let db = reader.transaction()?;
         let mut names: std::collections::BTreeSet<String> =
             meep_store::get(&db, "client/file-list", &topic.to_string())?.unwrap_or_default();
-        let mut statement = db.prepare("SELECT path FROM client_files WHERE topic=?1 UNION SELECT path FROM client_file_outbox WHERE topic=?1")?;
+        let mut statement = db.prepare(
+            "SELECT path FROM client_files WHERE topic=?1
+             UNION ALL SELECT DISTINCT path FROM client_file_outbox WHERE topic=?1",
+        )?;
         for row in statement.query_map([topic.to_string()], |row| row.get(0))? {
             names.insert(row?);
         }

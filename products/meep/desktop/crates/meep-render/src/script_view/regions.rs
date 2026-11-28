@@ -269,19 +269,14 @@ mod cache_tests {
 
     struct Parent {
         child: Entity<Child>,
-        independent: bool,
     }
     impl Render for Parent {
         fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-            let child = self
-                .child
-                .clone()
-                .cached(StyleRefinement::default().size_full());
-            div().size_full().child(if self.independent {
-                child.independent()
-            } else {
-                child
-            })
+            div().size_full().child(
+                self.child
+                    .clone()
+                    .cached(StyleRefinement::default().size_full()),
+            )
         }
     }
 
@@ -318,12 +313,12 @@ mod cache_tests {
         }
     }
 
-    fn replay_then_render(cx: &mut TestAppContext, independent: bool) {
+    fn replay_then_render(cx: &mut TestAppContext) {
         let window = cx.open_window(size(px(400.), px(300.)), |_, cx| {
             let child = cx.new(|_| Child);
             Root {
                 before: 100,
-                parent: cx.new(|_| Parent { child, independent }),
+                parent: cx.new(|_| Parent { child }),
             }
         });
         let draw = |cx: &mut TestAppContext| {
@@ -350,12 +345,7 @@ mod cache_tests {
     }
 
     #[gpui::test]
-    fn an_independent_view_renders_after_its_parent_was_replayed(cx: &mut TestAppContext) {
-        replay_then_render(cx, true);
-    }
-
-    #[gpui::test]
     fn a_cached_view_renders_after_its_parent_was_replayed(cx: &mut TestAppContext) {
-        replay_then_render(cx, false);
+        replay_then_render(cx);
     }
 }

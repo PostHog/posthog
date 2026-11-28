@@ -129,14 +129,20 @@ fn place_artifacts(
     out: &mut BTreeMap<String, Entry>,
 ) {
     let folders = task_folders(state, artifacts);
+    let mut next_suffix = BTreeMap::new();
     for a in artifacts {
         let base = segment(&a.name);
         let folder = format!("{TASKS}/{}", folders[&a.task]);
         let mut path = join(&folder, &base);
-        let mut n = 2;
-        while out.contains_key(&path) {
-            path = join(&folder, &numbered(&base, n));
-            n += 1;
+        if out.contains_key(&path) {
+            let suffix = next_suffix.entry(path).or_insert(2);
+            loop {
+                path = join(&folder, &numbered(&base, *suffix));
+                *suffix += 1;
+                if !out.contains_key(&path) {
+                    break;
+                }
+            }
         }
         out.insert(path, Entry::Artifact(Box::new(a.clone())));
     }

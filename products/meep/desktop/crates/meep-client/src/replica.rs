@@ -26,6 +26,7 @@ pub(crate) fn open(path: &Path) -> Result<Connection> {
          CREATE TABLE IF NOT EXISTS client_file_outbox (
              seq INTEGER PRIMARY KEY, id TEXT UNIQUE NOT NULL, topic TEXT NOT NULL, path TEXT NOT NULL, bytes BLOB NOT NULL
          );
+         CREATE INDEX IF NOT EXISTS client_file_outbox_topic_path ON client_file_outbox(topic,path);
          CREATE TABLE IF NOT EXISTS client_rejected_files (
              id TEXT PRIMARY KEY, path TEXT NOT NULL, bytes BLOB NOT NULL
          );
