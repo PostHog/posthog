@@ -517,7 +517,6 @@ describe('GuidanceEngine', () => {
 
         it.each([
             ['a static cohort that filters on event behavior', { is_static: true, filters: behavioralFilters }],
-            ['a static cohort named with the exec spelling', { isStatic: true, filters: behavioralFilters }],
             [
                 'a person property whose value holds a type key',
                 {
@@ -594,6 +593,21 @@ describe('GuidanceEngine', () => {
                     ...cohortsCreate,
                     args: { name: 'Active', is_static: false, isStatic: true, filters: behavioralFilters },
                 },
+            ],
+            [
+                'a behavioral cohort whose static flag is spelled another way',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', isStatic: true, filters: behavioralFilters } },
+            ],
+            [
+                'a behavioral cohort whose filters are spelled another way',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', Filters: behavioralFilters } },
+            ],
+            [
+                'a dynamic cohort defined by a query',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', query: { kind: 'HogQLQuery', query: 'select 1' } } },
             ],
             [
                 'a call whose arguments did not parse',
