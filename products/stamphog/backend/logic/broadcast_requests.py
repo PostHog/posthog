@@ -818,7 +818,8 @@ def _set_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDeliver
         set_reactions(card, delivery.channel_id, delivery.message_ts, looking=bool(card.lookers), approved=approved)
     if delivery.thread_ts:
         # The channel shows the post that asked and not its thread, so the post carries the reactions of all its cards.
-        _set_link_post_reactions(card, delivery, using=using)
+        # It reads them after the commit, so two cards approved at the same time each see the other's new status.
+        transaction.on_commit(lambda: _set_link_post_reactions(card, delivery, using=using), using=using)
 
 
 def _set_link_post_reactions(card: BroadcastRequestCard, delivery: BroadcastRequestDelivery, *, using: str) -> None:

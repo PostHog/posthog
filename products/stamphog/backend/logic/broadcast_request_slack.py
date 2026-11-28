@@ -19,6 +19,7 @@ from typing import Any
 
 import structlog
 from slack_sdk.errors import SlackApiError
+from slack_sdk.http_retry.builtin_handlers import RateLimitErrorRetryHandler
 
 from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationNotFound
@@ -442,6 +443,8 @@ def set_reactions(card: BroadcastRequestCard, channel_id: str, ts: str, *, looki
         client = _slack(card.team_id, card.integration_id).client
     except BroadcastRequestSlackError:
         return
+    # A Stamphog approval ends the request, so no later refresh sets a ✅ that a rate limit dropped.
+    client.retry_handlers.append(RateLimitErrorRetryHandler(max_retry_count=1))
     for name, show in ((LOOKING_REACTION, looking), (APPROVED_REACTION, approved)):
         try:
             if show:
