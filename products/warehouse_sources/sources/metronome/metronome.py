@@ -102,6 +102,9 @@ class MetronomeResumeConfig:
     # finishes, so the checkpoint stays the size of one customer page however large the account is.
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    # Customer fan-outs. The state `build_dependent_resource` checkpoints: where the customer list
+    # had reached, the customers already finished, and the child cursor of the one in progress.
+    fanout_state: dict[str, Any] | None = None
 
 
 class MetronomeCursorPaginator(JSONResponseCursorPaginator):
@@ -259,6 +262,7 @@ class MetronomeWalkStart:
     paginator_state: dict[str, Any] | None = None
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    fanout_state: dict[str, Any] | None = None
 
 
 def _walk_start(
@@ -282,11 +286,14 @@ def _walk_start(
     paginator_state: dict[str, Any] | None = None
     parent_cursor: str | None = None
     completed_customers: tuple[str, ...] = ()
+    fanout_state: dict[str, Any] | None = None
+
+    windowed = config.window_size is not None or config.query_window_history is not None
 
     if resume_config is not None and resumable_source_manager is not None:
         # A checkpoint written before the cutoff was stored carries none. Restart the walk rather
         # than replay its stale cursor against a freshly computed window.
-        if config.window_size is not None and resume_config.ending_before is None:
+        if windowed and resume_config.ending_before is None:
             # The pipeline reads the resume key itself after this returns, so skipping the stale
             # cursor here is not enough. A lingering key makes it treat the restarted walk as a
             # resume and append onto the partial `replace` table. Drop the key so the restart is a
@@ -297,6 +304,7 @@ def _walk_start(
                 paginator_state = {"cursor": resume_config.next_page}
             parent_cursor = resume_config.parent_cursor
             completed_customers = tuple(resume_config.completed_customers or ())
+            fanout_state = resume_config.fanout_state
             ending_before = resume_config.ending_before
             starting_on = resume_config.starting_on
 
@@ -309,6 +317,9 @@ def _walk_start(
             starting_on = _clamp_window_start(
                 _resolve_window_start(config, db_incremental_field_last_value, usage_history), ending_before
             )
+    elif config.query_window_history is not None and ending_before is None:
+        window = _query_window(config.query_window_history, db_incremental_field_last_value)
+        starting_on, ending_before = window["starting_on"], window["ending_before"]
 
     return MetronomeWalkStart(
         starting_on=starting_on,
@@ -316,6 +327,7 @@ def _walk_start(
         paginator_state=paginator_state,
         parent_cursor=parent_cursor,
         completed_customers=completed_customers,
+        fanout_state=fanout_state,
     )
 
 
@@ -824,13 +836,24 @@ def metronome_source(
         client = _rest_client(api_key)
         return _make_source_response(endpoint_config, lambda: _body_fanout_pages(client, endpoint_config))
 
+    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, usage_history)
+
     if endpoint_config.fanout:
         parent_config = METRONOME_ENDPOINTS[endpoint_config.fanout.parent_name]
         child_params = dict(endpoint_config.extra_params)
-        if endpoint_config.query_window_history is not None:
-            child_params.update(_query_window(endpoint_config.query_window_history, db_incremental_field_last_value))
-        # Dependent resources don't support resume in the rest_source framework, so the manager is
-        # intentionally not threaded into this path.
+        if walk.starting_on is not None and walk.ending_before is not None:
+            child_params.update(starting_on=walk.starting_on, ending_before=walk.ending_before)
+
+        def save_fanout_state(state: Optional[dict[str, Any]]) -> None:
+            # The pinned window rides along, so a resumed attempt replays the window it started with.
+            if resumable_source_manager is None or not state:
+                return
+            resumable_source_manager.save_state(
+                MetronomeResumeConfig(
+                    fanout_state=state, starting_on=walk.starting_on, ending_before=walk.ending_before
+                )
+            )
+
         dependent_resource = cast(
             Iterable[Any],
             build_dependent_resource(
@@ -857,11 +880,15 @@ def metronome_source(
                     "data_selector": DATA_SELECTOR,
                     "data_selector_required": True,
                 },
+                # A walk over every customer runs for hours on a large account, longer than a worker
+                # lives between restarts. The checkpoint holds the customer list's page and the child
+                # cursor, so a resumed attempt continues where the last one stopped.
+                resume_hook=save_fanout_state if resumable_source_manager is not None else None,
+                initial_paginator_state=walk.fanout_state,
+                resume_parent_pagination=True,
             ),
         )
         return _make_source_response(endpoint_config, lambda: dependent_resource)
-
-    walk = _walk_start(endpoint_config, resumable_source_manager, db_incremental_field_last_value, usage_history)
 
     # A usage walk pages per customer and billable metric, so one sequential pass is one request
     # per page for the whole account. Partition it by customer and run several walks at once.
@@ -948,7 +975,7 @@ def metronome_source(
     # already taken a yielded item by the time the cursor past it is offered. chunk_size=1 turns
     # that into a durability rule: one yielded item is one flush, so a page reaches Delta before its
     # cursor is checkpointed, and a mid-sync worker shutdown resumes at the page it stopped on
-    # rather than past it. The fan-out tables above don't resume, so they keep the default.
+    # rather than past it.
     return _make_source_response(endpoint_config, lambda: resource, chunk_size=1)
 
 
