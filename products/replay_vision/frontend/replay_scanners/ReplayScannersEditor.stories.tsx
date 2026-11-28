@@ -59,14 +59,6 @@ export const ScannerEditorBudget: StoryObj = {
     parameters: { pageUrl: urls.replayVisionScannerBudget(summarizerScanner.id) },
 }
 
-// The recordings-first experiment arm only applies while creating, so this story starts a new scanner.
-export const ScannerEditorTriggersRecordingsFirst: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerTriggers('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
-    },
-}
-
 // The goal step: one goal box with starters that fill it, a budget, and a single draft button.
 export const ScannerEditorGoalFlow: StoryObj = {
     parameters: {
@@ -125,15 +117,6 @@ const seedGoalOverviewDraft: Decorator = (StoryFn) => {
 export const ScannerEditorGoalOverview: StoryObj = {
     parameters: {
         pageUrl: urls.replayVisionScannerOverview('new'),
-    },
-    decorators: [seedGoalOverviewDraft],
-}
-
-// The recordings-first experiment arm reviews the eligible recordings before the prompt.
-export const ScannerEditorGoalOverviewRecordingsFirst: StoryObj = {
-    parameters: {
-        pageUrl: urls.replayVisionScannerOverview('new'),
-        featureFlags: { [FEATURE_FLAGS.VISION_SCANNER_WIZARD_RECORDINGS_FIRST]: 'test' },
     },
     decorators: [seedGoalOverviewDraft],
 }

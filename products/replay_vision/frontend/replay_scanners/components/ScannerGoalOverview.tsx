@@ -24,7 +24,7 @@ import { creditsToUsd, formatCreditCount } from '../../utils/credits'
 import { freeCreditsCoverage } from '../../utils/quotaProjection'
 import { scannerExperimentScope, scopeVariantsLabel } from '../experimentTargeting'
 import { replayScannerLogic } from '../replayScannerLogic'
-import { ScannerEditorStep, scannerEditorSceneLogic, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
+import { STEP_LABELS, ScannerEditorStep, scannerStepUrlWithParams } from '../scannerEditorSceneLogic'
 import {
     OBSERVATION_CREDITS_BY_MODEL,
     SCANNER_TYPE_TAG_TYPE,
@@ -272,14 +272,9 @@ function topLevelPropertyGroups(scanner: ReplayScanner): EligibleFilterGroup[] {
  */
 export function eligibleFilterGroups(
     scanner: ReplayScanner,
-    {
-        experimentName,
-        cohortNames,
-        recordingsFirst,
-    }: { experimentName?: string; cohortNames?: Record<string, string>; recordingsFirst?: boolean } = {}
+    { experimentName, cohortNames }: { experimentName?: string; cohortNames?: Record<string, string> } = {}
 ): EligibleFilterGroup[] {
-    // The recordings-first experiment arm uses the filter's own name from the recordings filter.
-    const [pageSingular, pagePlural] = recordingsFirst ? ['Visited page', 'Visited pages'] : ['Page', 'Pages']
+    const [pageSingular, pagePlural] = ['Visited page', 'Visited pages']
     const kinds: [key: string, singular: string, plural: string, values: string[]][] = [
         ['experiment', 'Experiment', 'Experiments', experimentValues(scanner, experimentName)],
         ...pageValueLists(scanner).map((values, index): [string, string, string, string[]] => [
@@ -319,9 +314,8 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         experimentContext,
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
-    const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
     const { fieldLabel, naming } = useModelNaming()
-    const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
+    const sectionLabels = GOAL_OVERVIEW_SECTION_TITLES
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
     const { submitScanner, loadScannerEstimate } = useActions(logic)
@@ -341,7 +335,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     const filterGroups = eligibleFilterGroups(scanner, {
         experimentName: experimentContext?.experiment.name,
         cohortNames,
-        recordingsFirst,
     })
     // Read against the form, so an addition the person removed by hand is not credited to the AI.
     const currentFilterValues = new Set(filterGroups.flatMap((group) => group.values))
@@ -353,7 +346,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     // The draft is still generating: show the page's shape so the wait reads as progress.
     if (goalDraftLoading) {
-        return <ScannerGoalOverviewSkeleton recordingsFirst={recordingsFirst} />
+        return <ScannerGoalOverviewSkeleton />
     }
 
     const zeroMatches = scannerEstimate !== null && scannerEstimate.matched_sessions_in_window === 0
@@ -381,7 +374,6 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
             ? `No recordings matched in the last ${pluralize(scannerEstimate.window_days, 'day')}. The scanner scans new matching recordings when they arrive.`
             : undefined
 
-    // The recordings-first experiment arm reviews what the scanner watches before what it asks.
     const askSection = (
         <OverviewSection label={sectionLabels.configure} editStep="configure" scannerId={scannerId}>
             <div className="space-y-3">
@@ -401,7 +393,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                         </span>
                     </StatRow>
                 </div>
-                <div className="text-xs text-muted">{modelRoleLabel(scanner.model, stepLabels.configure)}</div>
+                <div className="text-xs text-muted">{modelRoleLabel(scanner.model, STEP_LABELS.configure)}</div>
             </div>
         </OverviewSection>
     )
@@ -410,23 +402,13 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
 
     return (
         <div className="flex flex-col gap-3">
-            {recordingsFirst ? (
-                <>
-                    <DraftReviewHeader />
-                    {rationale ? <RationaleSection rationale={rationale} /> : null}
-                </>
-            ) : (
-                <OverviewSection label="What it understood" scannerId={scannerId}>
-                    <div className="text-sm">{rationale || scanner.description}</div>
-                </OverviewSection>
-            )}
+            <DraftReviewHeader />
+            {rationale ? <RationaleSection rationale={rationale} /> : null}
 
             <OverviewSection label="Name" editStep="details" scannerId={scannerId}>
                 <div className="text-sm font-medium">{scanner.name}</div>
                 {scanner.description ? <div className="text-sm text-muted">{scanner.description}</div> : null}
             </OverviewSection>
-
-            {recordingsFirst ? null : askSection}
 
             <OverviewSection label={sectionLabels.triggers} editStep="triggers" scannerId={scannerId}>
                 {filterGroups.length > 0 ? (
@@ -476,7 +458,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : null}
             </OverviewSection>
 
-            {recordingsFirst ? askSection : null}
+            {askSection}
 
             <OverviewSection
                 label={sectionLabels.budget}
@@ -621,29 +603,25 @@ function DraftLoadingBar(): JSX.Element {
     )
 }
 
-/** Each overview section's title. The recordings-first experiment arm uses its wizard step names. */
-export function goalOverviewSectionTitles(
-    recordingsFirst: boolean
-): Record<'configure' | 'triggers' | 'budget', string> {
-    return recordingsFirst
-        ? { triggers: 'Target recordings', configure: 'Prompt & output', budget: 'Sampling & limits' }
-        : { triggers: 'Eligible recordings', configure: 'What it will ask', budget: 'Sampling and budget' }
+/** Each overview section's title, from its wizard step name. */
+export const GOAL_OVERVIEW_SECTION_TITLES: Record<'configure' | 'triggers' | 'budget', string> = {
+    triggers: 'Target recordings',
+    configure: 'Prompt & output',
+    budget: 'Sampling & limits',
 }
 
-/** The overview's section titles in render order, which the recordings-first experiment arm changes. */
-export function goalOverviewSectionLabels(recordingsFirst: boolean): string[] {
-    const titles = goalOverviewSectionTitles(recordingsFirst)
-    return recordingsFirst
-        ? ['Name', titles.triggers, titles.configure, titles.budget]
-        : ['What it understood', 'Name', titles.configure, titles.triggers, titles.budget]
+/** The overview's section titles in render order. */
+export function goalOverviewSectionLabels(): string[] {
+    const titles = GOAL_OVERVIEW_SECTION_TITLES
+    return ['Name', titles.triggers, titles.configure, titles.budget]
 }
 
 /** The overview's shape while the draft is still generating, so navigating there reads as progress. */
-function ScannerGoalOverviewSkeleton({ recordingsFirst }: { recordingsFirst: boolean }): JSX.Element {
+function ScannerGoalOverviewSkeleton(): JSX.Element {
     return (
         <div className="flex flex-col gap-3">
             <DraftLoadingBar />
-            {goalOverviewSectionLabels(recordingsFirst).map((label) => (
+            {goalOverviewSectionLabels().map((label) => (
                 <div key={label} className="bg-bg-light border rounded-lg p-4 space-y-2">
                     <div className="text-xs text-tertiary uppercase tracking-wide">{label}</div>
                     <LemonSkeleton className="h-4 w-3/4" />
