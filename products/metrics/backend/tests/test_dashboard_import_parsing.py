@@ -152,6 +152,13 @@ def test_parses_panels_into_queries_displays_and_a_grid_without_overlaps() -> No
     assert panels["p7"].text == "Runbook: see the wiki"
     assert panels["p8"].targets[0].unresolved_variables == ["cluster"]
     assert "The variable $cluster has no saved value." in panels["p8"].notes
+    assert panels["p2"].notes == [
+        "PostHog can't keep $instance as a dashboard variable, so the panel uses its saved value: All."
+    ]
+    assert panels["p3"].notes == []
+    assert panels["p6"].notes == [
+        "PostHog can't keep $job as a dashboard variable, so the panel uses its saved value: checkout."
+    ]
 
     assert panels["p1"].layout == GridLayout(x=0, y=0, w=12, h=1)
     assert (panels["p2"].layout.x, panels["p2"].layout.w, panels["p2"].layout.h) == (0, 6, 3)
@@ -310,7 +317,14 @@ def _v2_dashboard(*, alpha: bool) -> dict[str, Any]:
             },
         }
     variables = [
-        {"kind": "QueryVariable", "spec": {"name": "job", "current": {"text": "checkout", "value": "checkout"}}},
+        {
+            "kind": "QueryVariable",
+            "spec": {
+                "name": "job",
+                "current": {"text": "checkout", "value": "checkout"},
+                "query": {"kind": "DataQuery", "group": "prometheus", "spec": {"query": "label_values(up, job)"}},
+            },
+        },
         {
             "kind": "QueryVariable",
             "spec": {
@@ -318,7 +332,6 @@ def _v2_dashboard(*, alpha: bool) -> dict[str, Any]:
                 "includeAll": True,
                 "allValue": ".*",
                 "current": {"text": "All", "value": "$__all"},
-                "query": {"kind": "DataQuery", "group": "prometheus", "spec": {"query": "label_values(instance)"}},
             },
         },
         {
@@ -364,9 +377,7 @@ def test_reads_a_v2_resource_like_the_same_classic_dashboard(alpha: bool) -> Non
     spec = GrafanaDashboardParser(v2).parse()
     assert spec.date_from == "-6h"
     assert _comparable(v2) == _comparable(DASHBOARD)
-    assert {variable["name"]: variable.get("query") for variable in spec.metric_variables}["instance"] == (
-        "label_values(instance)"
-    )
+    assert spec.metric_variables == GrafanaDashboardParser(DASHBOARD).parse().metric_variables
 
 
 def test_places_v2_auto_grid_panels_in_columns_under_each_tab() -> None:
@@ -626,6 +637,17 @@ def test_a_listed_all_matches_only_the_listed_values() -> None:
 def test_variables_that_cannot_stay_live_keep_their_saved_values(item: dict[str, Any]) -> None:
     datasource_type = lambda datasource: "loki" if datasource == "Loki" else None  # noqa: E731
     assert TemplateVariables.from_templating([item], datasource_type).definitions() == []
+
+
+def test_interval_variables_are_not_reported_as_fixed() -> None:
+    variables = TemplateVariables.from_templating(
+        [
+            {"name": "iv", "type": "interval", "query": "1m,5m", "current": {"value": "5m"}},
+            {"name": "env", "type": "textbox", "query": "prod-.*"},
+        ]
+    )
+
+    assert variables.fixed('rate(up{env=~"$env"}[$iv])', templated=False) == {"env": "prod-.*"}
 
 
 def test_a_text_box_regex_stays_a_regex() -> None:
