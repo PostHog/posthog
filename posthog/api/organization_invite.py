@@ -20,6 +20,7 @@ from posthog.constants import INVITE_DAYS_VALIDITY
 from posthog.email import is_email_available
 from posthog.event_usage import report_bulk_invited, report_team_member_invited
 from posthog.helpers.email_utils import (
+    EmailLookupHandler,
     EmailNormalizer,
     reject_lookalike_email_characters,
     reject_plus_addressed_email,
@@ -34,7 +35,7 @@ from posthog.models.onboarding_delegation import (
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
-from posthog.models.user import User
+from posthog.models.user import User, UserType
 from posthog.permissions import (
     APIScopePermission,
     OrganizationMemberPermissions,
@@ -248,6 +249,11 @@ class OrganizationInviteSerializer(serializers.ModelSerializer):
         ).exists():
             raise exceptions.ValidationError(
                 "A user with this email address already belongs to the organization.", code="existing_member"
+            )
+        # Service accounts cannot accept invites.
+        if EmailLookupHandler.users_matching_email(email).exclude(type=UserType.HUMAN).exists():
+            raise exceptions.ValidationError(
+                "This email address belongs to an account that can't be invited.", code="not_human"
             )
         return email
 
