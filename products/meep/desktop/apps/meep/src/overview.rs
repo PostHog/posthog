@@ -692,9 +692,12 @@ impl Desktop {
             )
             .into_any_element()])
         };
-        page.child(set::header(g.text.clone(), kind, None))
-            .child(set::section("Progress", "", None, true))
-            .child(progress)
+        page.child(super::details::item_title(
+            kind,
+            g.text.trim_end_matches('.').to_owned(),
+        ))
+        .child(set::section("Progress", "", None, true))
+        .child(progress)
     }
 
     /// A linked context source as its own page.

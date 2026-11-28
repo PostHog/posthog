@@ -2182,6 +2182,7 @@ impl Desktop {
                             .child(
                                 div()
                                     .flex_1()
+                                    .min_w_0()
                                     .font_weight(FontWeight::MEDIUM)
                                     .child(report.title.clone()),
                             )
@@ -2381,6 +2382,13 @@ impl Desktop {
         } else {
             head
         };
+        let head = ui::column()
+            .gap(px(14.))
+            .child(super::details::item_title(
+                "Routine",
+                r.binding.name.clone(),
+            ))
+            .child(head);
         let Some(d) = details else {
             return ui::column()
                 .gap(px(18.))
@@ -2411,18 +2419,18 @@ impl Desktop {
             .rounded(px(10.))
             .border_1()
             .border_color(ui::ink(0x0f))
-            .child(stat(total.to_string(), "Outcomes this week", true))
+            .child(stat(total.to_string(), "Runs this week", true))
             .child(stat(
                 if total == 0 {
                     "–".into()
                 } else {
                     format!("{:.0}%", 100. * week.succeeded as f64 / total as f64)
                 },
-                "Successful outcomes",
+                "Success rate",
                 false,
             ))
             .child(
-                stat(week.failed.to_string(), "Failed outcomes", false)
+                stat(week.failed.to_string(), "Failed", false)
                     .when(week.failed > 0, |c| c.text_color(rgb(warning()))),
             )
             .child(stat(

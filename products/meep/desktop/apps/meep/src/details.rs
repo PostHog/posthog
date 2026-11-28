@@ -145,13 +145,10 @@ impl ChatTask {
             Column::NeedsYou | Column::Done => self.updated,
         };
         let seconds = (end - self.started).num_seconds().max(0);
-        Some(if seconds >= 3600 {
-            format!(
-                "{}:{:02}:{:02}",
-                seconds / 3600,
-                seconds / 60 % 60,
-                seconds % 60
-            )
+        Some(if seconds >= 86_400 {
+            format!("{}d {}h", seconds / 86_400, seconds / 3600 % 24)
+        } else if seconds >= 3600 {
+            format!("{}h {}m", seconds / 3600, seconds / 60 % 60)
         } else {
             format!("{}:{:02}", seconds / 60, seconds % 60)
         })
@@ -2149,13 +2146,20 @@ impl Desktop {
                     .id("came-from")
                     .role(Role::Link)
                     .self_start()
+                    .max_w_full()
+                    .min_w_0()
                     .gap(px(6.))
                     .cursor_pointer()
                     .text_size(px(12.))
                     .text_color(rgb(ui::theme::color(ui::SECONDARY)))
                     .hover(|s| s.text_color(rgb(ui::theme::color(ui::INK))))
                     .child(Icon::new(Glyph::Inbox).size(px(13.)))
-                    .child(format!("{label} · {}", super::pages::short_subject(&thread.subject)))
+                    .child(
+                        div()
+                            .min_w_0()
+                            .truncate()
+                            .child(format!("{label} · {}", super::pages::short_subject(&thread.subject))),
+                    )
                     .child(Icon::new(Glyph::ChevronRight).size(px(11.)))
                     .on_click(cx.listener(move |s, _, w, cx| {
                         s.go(
