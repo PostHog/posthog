@@ -84,6 +84,7 @@ class TestBackfillHogFunctionAbuseScores(AbuseClassificationTestCase):
         assert save_event["properties"]["trigger"] == "save"
         assert backfill_event["properties"]["trigger"] == "backfill"
         assert backfill_event["properties"]["backfill_run_id"] == run_id.group(1)
+        assert "frontier_review_queued" not in backfill_event["properties"]
 
     def test_a_resumed_backfill_run_scores_only_what_it_has_not_scored(self) -> None:
         self.flags.enabled[TEAM_FLAG] = False

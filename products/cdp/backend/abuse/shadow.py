@@ -23,7 +23,7 @@ from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
 from posthog.utils import absolute_uri, get_instance_region
 
-from products.cdp.backend.abuse import metrics, rules
+from products.cdp.backend.abuse import frontier, metrics, rules
 from products.cdp.backend.abuse.account import Account, AccountCutoffs, AccountTier
 from products.cdp.backend.abuse.classifier import (
     AbuseVerdict,
@@ -47,7 +47,7 @@ logger = structlog.get_logger(__name__)
 
 # Its JSON payload holds the thresholds, for example {"alert_threshold": 0.5, "block_threshold": 0.9,
 # "control_threshold": 0.7}, and may override the account cutoffs, for example {"established_min_age_days": 30,
-# "new_max_age_days": 14, "new_max_members": 2}.
+# "new_max_age_days": 14, "new_max_members": 2}. {"frontier_review": true} turns on the frontier review.
 FLAG = "cdp-abuse-classifier"
 # A kill switch for backfill runs, evaluated without a team. Turning it off stops a run before its next function.
 BACKFILL_FLAG = "cdp-abuse-classifier-backfill"
@@ -170,6 +170,10 @@ def _flag_payload(team: Team) -> dict[str, Any]:
         logger.warning("cdp_abuse_classifier_payload_unreadable", team_id=team.id, exc_info=True)
         return {}
     return payload if isinstance(payload, dict) else {}
+
+
+def frontier_review_switched_on(team: Team) -> bool:
+    return _flag_payload(team).get(frontier.SWITCH) is True
 
 
 def _thresholds(payload: dict[str, Any], team_id: int) -> Thresholds:
@@ -459,13 +463,19 @@ def report(
     for rule in scored.rule_hits:
         metrics.RULE_HITS.labels(rule.value).inc()
     rule_hits = [rule.value for rule in scored.rule_hits]
+    review = _frontier_review_plan(hog_function, scored) if trigger is Trigger.SAVE else _NO_REVIEW
     if scored.verdict is None:
         reason = scored.failure or FailureReason.GATEWAY_ERROR
         metrics.ERRORS.labels(reason.value).inc()
         metrics.CLASSIFICATIONS.labels(function_type, scored.label, "error").inc()
         # Without a model verdict, a function no rule matched is unknown rather than clean.
         rule_verdict = {"would_alert": scored.would_alert, "would_block": scored.would_block} if rule_hits else {}
-        _capture(hog_function, scored, {**run, "error": reason.value, "rule_hits": rule_hits, **rule_verdict})
+        capture(
+            hog_function,
+            scored,
+            {**run, **review.properties, "error": reason.value, "rule_hits": rule_hits, **rule_verdict},
+        )
+        review.carry_out(hog_function)
         return
 
     verdict = scored.verdict
@@ -473,11 +483,12 @@ def report(
     metrics.RISK_SCORE.labels(function_type).observe(verdict.risk_score)
     metrics.LATENCY.observe(verdict.latency_ms / 1000)
     metrics.INPUT_TOKENS.labels(function_type).inc(verdict.input_tokens)
-    _capture(
+    capture(
         hog_function,
         scored,
         {
             **run,
+            **review.properties,
             **{f"score_{question}": probability for question, probability in verdict.scores.items()},
             "risk_score": verdict.risk_score,
             "rule_hits": rule_hits,
@@ -491,6 +502,7 @@ def report(
             "input_tokens": verdict.input_tokens,
         },
     )
+    review.carry_out(hog_function)
     # Only a delivered verdict is remembered, so a failed classification or capture runs again on the next save.
     cache.set(
         _hash_key(str(hog_function.id)),
@@ -506,7 +518,9 @@ def report(
     )
 
 
-def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object]) -> None:
+def capture(
+    hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict[str, object], *, event: str = EVENT
+) -> None:
     team = hog_function.team
     account = scored.account
     properties = {
@@ -530,4 +544,45 @@ def _capture(hog_function: HogFunction, scored: ScoredHogFunction, outcome: dict
     }
     # Every region reports to PostHog's US project, so the region rides along as a property.
     with ph_scoped_capture(event_region=get_instance_region(), raise_on_error=True) as capture:
-        capture(distinct_id=str(team.uuid), event=EVENT, properties=properties, groups=groups(team=team))
+        capture(distinct_id=str(team.uuid), event=event, properties=properties, groups=groups(team=team))
+
+
+@frozen
+class _FrontierReviewPlan:
+    properties: dict[str, object]
+    queue: bool = False
+    skipped: frontier.SkipReason | None = None
+
+    def carry_out(self, hog_function: HogFunction) -> None:
+        """After the classification event is captured, so a failed capture queues nothing and the save scores again."""
+        if self.queue:
+            if frontier.start_or_push_back(str(hog_function.id)):
+                from products.cdp.backend.tasks.abuse_classification import queue_frontier_review  # noqa: PLC0415
+
+                queue_frontier_review(hog_function.team_id, str(hog_function.id), frontier.DEBOUNCE_SECONDS)
+        elif self.skipped is not None:
+            metrics.FRONTIER_REVIEW_SKIPS.labels(self.skipped.value).inc()
+
+
+_NO_REVIEW = _FrontierReviewPlan(properties={})
+
+
+def _frontier_review_plan(hog_function: HogFunction, scored: ScoredHogFunction) -> _FrontierReviewPlan:
+    """A save goes to the frontier review when it would have alerted: a rule hit, or a model score past every gate.
+    A note that Jev cut long code does not count on its own, and without a Jev verdict only a rule hit counts."""
+    if not scored.would_alert:
+        return _FrontierReviewPlan(properties={"frontier_review_queued": False})
+    if not frontier_review_switched_on(hog_function.team):
+        skipped: frontier.SkipReason | None = frontier.SkipReason.SWITCHED_OFF
+    else:
+        skipped = frontier.skip_reason(
+            stored=frontier.stored_verdict(str(hog_function.id)),
+            fingerprint=frontier.fingerprint(
+                content_of(hog_function, hog_function.template), scored.rule_hits, scored.outbound_call
+            ),
+        )
+    if skipped is None:
+        return _FrontierReviewPlan(properties={"frontier_review_queued": True}, queue=True)
+    return _FrontierReviewPlan(
+        properties={"frontier_review_queued": False, "frontier_review_skipped": skipped.value}, skipped=skipped
+    )
