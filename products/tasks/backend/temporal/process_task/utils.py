@@ -1693,7 +1693,9 @@ def get_sandbox_name_for_task(task_id: str) -> str:
     return f"task-sandbox-{task_id}"
 
 
-def get_sandbox_otel_env_vars() -> dict[str, str]:
+def get_sandbox_otel_env_vars(
+    *, origin_product: str | None = None, slack_channel_id: str | None = None, slack_thread_ts: str | None = None
+) -> dict[str, str]:
     """OTLP config for agent-server run telemetry (PostHog Logs/APM).
 
     Deliberately POSTHOG_-prefixed rather than the standard OTEL_* names: the
@@ -1708,6 +1710,18 @@ def get_sandbox_otel_env_vars() -> dict[str, str]:
     }
     if settings.SANDBOX_AGENT_OTEL_TRACES_URL:
         env_vars["POSTHOG_AGENT_OTEL_TRACES_URL"] = settings.SANDBOX_AGENT_OTEL_TRACES_URL
+    if (
+        origin_product == "slack"
+        and slack_channel_id
+        and re.fullmatch(r"[A-Za-z0-9]+", slack_channel_id)
+        and slack_thread_ts
+        and re.fullmatch(r"\d+\.\d+", slack_thread_ts)
+    ):
+        env_vars["POSTHOG_AGENT_OTEL_SLACK_CHANNEL_ID"] = slack_channel_id
+        env_vars["POSTHOG_AGENT_OTEL_SLACK_THREAD_TS"] = slack_thread_ts
+        env_vars["POSTHOG_AGENT_OTEL_SLACK_THREAD_URL"] = (
+            f"https://app.slack.com/archives/{slack_channel_id}/p{slack_thread_ts.replace('.', '')}"
+        )
     return env_vars
 
 

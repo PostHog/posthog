@@ -1265,6 +1265,12 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         self._agent_boot_interaction_telemetry_enabled = input.resumed_sandbox is None
         try:
             self._context = await self._get_task_processing_context(input)
+            if self._context.origin_product == "slack" and self._slack_thread_context:
+                channel_id = self._slack_thread_context.get("channel")
+                thread_ts = self._slack_thread_context.get("thread_ts")
+                if isinstance(channel_id, str) and isinstance(thread_ts, str):
+                    self._context.slack_channel_id = channel_id
+                    self._context.slack_thread_ts = thread_ts
             if self._stream_generation is not None:
                 self._context.stream_generation = self._stream_generation
             if self._startup_worker_started_at is not None:

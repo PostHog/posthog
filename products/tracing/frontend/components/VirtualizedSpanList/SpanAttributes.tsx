@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef, useState } from 'react'
 
 import { IconCheck, IconColumns, IconMinusSquare, IconPlusSquare } from '@posthog/icons'
-import { LemonButton, LemonTable, Tooltip } from '@posthog/lemon-ui'
+import { LemonButton, LemonTable, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import ViewRecordingButton, {
@@ -24,6 +24,24 @@ import { tracingFiltersLogic } from 'products/tracing/frontend/tracingFiltersLog
 import { spanColumnKey, toggleSpanAttributeColumn } from './spanColumns'
 
 const APPLIED_INDICATOR_MS = 2000
+
+function slackThreadLink(value: string): JSX.Element | null {
+    try {
+        const url = new URL(value)
+        if (url.origin !== 'https://app.slack.com' || !/^\/archives\/[A-Za-z0-9]+\/p\d+$/.test(url.pathname)) {
+            return null
+        }
+        return (
+            <span onClick={(event) => event.stopPropagation()}>
+                <Link to={value} target="_blank">
+                    Open in Slack
+                </Link>
+            </span>
+        )
+    } catch {
+        return null
+    }
+}
 
 // The indicator names the state the click leaves behind, not the write, because a click on a value
 // already filtered reconciles to the same group and writes nothing (see spanFilterAdd.ts).
@@ -194,6 +212,10 @@ export function SpanAttributes({
                         />
                     </span>
                 ) : null
+                const externalLink =
+                    propertyType === PropertyFilterType.SpanResourceAttribute && record.key === 'slack_thread_url'
+                        ? slackThreadLink(record.value)
+                        : null
                 return (
                     <CopyToClipboardInline
                         explicitValue={record.value}
@@ -203,7 +225,7 @@ export function SpanAttributes({
                         selectable
                         className="gap-1 font-mono text-xs"
                     >
-                        {correlationLink ?? <span>{record.value}</span>}
+                        {correlationLink ?? externalLink ?? <span>{record.value}</span>}
                     </CopyToClipboardInline>
                 )
             },

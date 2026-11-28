@@ -40,6 +40,9 @@ export interface AgentServerConfig {
   otelLogsToken?: string;
   /** Full OTLP traces URL for run spans, e.g. https://us.i.posthog.com/i/v1/traces */
   otelTracesUrl?: string;
+  otelSlackChannelId?: string;
+  otelSlackThreadTs?: string;
+  otelSlackThreadUrl?: string;
   mode: AgentMode;
   taskId: string;
   runId: string;

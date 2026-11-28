@@ -128,6 +128,8 @@ class TaskProcessingContext:
     repository: str | None
     distinct_id: str
     origin_product: str | None = None
+    slack_channel_id: str | None = None
+    slack_thread_ts: str | None = None
     profile_key: str | None = None
     profile_idle_minutes: int | None = None
     profile_max_wake_minutes: int | None = None

@@ -798,6 +798,9 @@ export class AgentServer {
           adapter,
           mode: this.getEffectiveMode(payload),
           agentVersion: this.config.version ?? packageJson.version,
+          slackChannelId: this.config.otelSlackChannelId,
+          slackThreadTs: this.config.otelSlackThreadTs,
+          slackThreadUrl: this.config.otelSlackThreadUrl,
         },
         new Logger({
           debug: false,
