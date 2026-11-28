@@ -1,7 +1,10 @@
+import { dayjs } from 'lib/dayjs'
+
 import {
     transactionalEmailSendsUrl,
     transactionalEmailStatsRowUrl,
     transactionalEmailUrl,
+    transactionalSendPageUrl,
 } from './transactionalEmailUrl'
 
 describe('transactionalEmailUrl', () => {
@@ -63,5 +66,21 @@ describe('transactionalEmailStatsRowUrl', () => {
         ],
     ])('%s', (_name, row, expected) => {
         expect(transactionalEmailStatsRowUrl({ ...counts, ...row })).toBe(expected)
+    })
+
+    test.each([
+        [
+            'a transactional send inside the log window may open its send page',
+            'transactional_email',
+            29,
+            '/transactional/log/msg-1',
+        ],
+        ['a transactional send older than the log keeps the preview', 'transactional_email', 31, null],
+        ['a workflow email keeps the preview', 'action_email_1', 1, null],
+    ])('%s', (_name, actionId, daysAgo, expected) => {
+        const sentAt = dayjs().subtract(daysAgo, 'day').toISOString()
+        expect(transactionalSendPageUrl({ action_id: actionId, invocation_id: 'msg-1', sent_at: sentAt })).toBe(
+            expected
+        )
     })
 })

@@ -1,10 +1,19 @@
 import { combineUrl } from 'kea-router'
 
+import { dayjs } from 'lib/dayjs'
 import { urls } from 'scenes/urls'
 
 import type { TransactionalEmailStatsRowApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { SEND_FILTER_PARAMS } from './log/transactionalEmailLogLogic'
+import { LOG_RETENTION_DAYS, SEND_FILTER_PARAMS } from './log/transactionalEmailLogLogic'
+
+const TRANSACTIONAL_EMAIL_ACTION_ID = 'transactional_email'
+
+interface SentEmail {
+    action_id: string
+    invocation_id: string
+    sent_at: string
+}
 
 // A send and a metrics row both name the email behind them with these two fields.
 interface EmailPage {
@@ -51,4 +60,10 @@ export function transactionalEmailStatsRowUrl(row: StatsRow): string | null {
         return row.label ? urls.transactionalTemplate(row.key) : null
     }
     return transactionalEmailUrl({ code_email_id: row.code_email_id ?? null, template_id: row.template_id })
+}
+
+export function transactionalSendPageUrl(email: SentEmail): string | null {
+    const sentInsideTheLog = dayjs(email.sent_at).isAfter(dayjs().subtract(LOG_RETENTION_DAYS, 'day'))
+    const mayBeLogged = email.action_id === TRANSACTIONAL_EMAIL_ACTION_ID && sentInsideTheLog
+    return mayBeLogged ? urls.transactionalEmailLogEntry(email.invocation_id) : null
 }

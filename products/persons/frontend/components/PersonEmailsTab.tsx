@@ -1,5 +1,4 @@
-import { useValues } from 'kea'
-import { useState } from 'react'
+import { useActions, useValues } from 'kea'
 
 import * as greekPng from '@posthog/brand/hoggies/png/greek'
 import { LemonTable, Link } from '@posthog/lemon-ui'
@@ -34,16 +33,17 @@ function EmptyEmails(): JSX.Element {
 
 export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX.Element {
     const logic = personEmailsLogic({ teamId, personId })
-    const { emails, emailsLoading } = useValues(logic)
-    const [selected, setSelected] = useState<MessageAsset | null>(null)
+    const { emails, emailsLoading, previewedEmail: selected, openingEmail } = useValues(logic)
+    const { openEmail, previewEmail } = useActions(logic)
 
     return (
         <>
             <LemonTable
-                loading={emailsLoading}
+                loading={emailsLoading || openingEmail}
+                disableTableWhileLoading={!openingEmail}
                 dataSource={emails}
                 onRow={(asset: MessageAsset) => ({
-                    onClick: () => setSelected(asset),
+                    onClick: () => openEmail(asset),
                     className: 'cursor-pointer',
                 })}
                 emptyState={<EmptyEmails />}
@@ -79,7 +79,7 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                 invocationId={selected?.invocation_id ?? ''}
                 actionId={selected?.action_id ?? ''}
                 isOpen={!!selected}
-                onClose={() => setSelected(null)}
+                onClose={() => previewEmail(null)}
                 title={selected?.subject || 'Email'}
                 description={selected ? `Sent to ${selected.recipient}` : undefined}
             />

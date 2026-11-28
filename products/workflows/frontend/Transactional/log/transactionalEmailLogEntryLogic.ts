@@ -20,6 +20,7 @@ import type {
 import { templatePageUrl, transactionalEmailSendsUrl } from '../transactionalEmailUrl'
 import { ActivityPerson, PersonActivity } from './emailActivity'
 import { fetchActivityPerson, fetchOtherEmails, fetchPersonActivity } from './emailActivityQueries'
+import { EmailClickLinks, EmailClickRow, emailClickRows, hasMoreClicks } from './emailClicks'
 
 export interface TransactionalEmailLogEntryLogicProps {
     messageId: string
@@ -35,10 +36,14 @@ export interface transactionalEmailLogEntryLogicValues {
     afterExpanded: boolean
     beforeExpanded: boolean
     breadcrumbs: Breadcrumb[]
+    clickLinks: EmailClickLinks
+    clickRows: EmailClickRow[]
+    clicksShown: boolean
     email: TransactionalEmailLogDetailApi | null | undefined
     emailFailed: boolean
     emailLoading: boolean
     emailPageUrl: string | null
+    moreClicks: boolean
     otherEmails: TransactionalEmailLogEntryApi[]
     otherEmailsFailed: boolean
     otherEmailsLoading: boolean
@@ -126,6 +131,18 @@ export interface transactionalEmailLogEntryLogicMeta {
             featureFlags: FeatureFlagsSet,
             searchParams: Record<string, any>
         ) => string | null
+        clickRows: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            activity: PersonActivity | null
+        ) => EmailClickRow[]
+        clicksShown: (featureFlags: FeatureFlagsSet, clickRows: EmailClickRow[]) => boolean
+        moreClicks: (email: TransactionalEmailLogDetailApi | null | undefined) => boolean
+        clickLinks: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            activity: PersonActivity | null,
+            activityLoading: boolean,
+            activityFailed: boolean
+        ) => EmailClickLinks
         breadcrumbs: (messageId: string) => Breadcrumb[]
     }
 }
@@ -252,6 +269,40 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
                 featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]
                     ? transactionalEmailSendsUrl(email, searchParams)
                     : templatePageUrl(email?.template_id),
+        ],
+        clickRows: [
+            (s) => [s.email, s.activity],
+            (
+                email: TransactionalEmailLogDetailApi | null | undefined,
+                activity: PersonActivity | null
+            ): EmailClickRow[] => (email ? emailClickRows(email.timeline, activity?.clicks ?? []) : []),
+        ],
+        clicksShown: [
+            (s) => [s.featureFlags, s.clickRows],
+            (featureFlags: FeatureFlagsSet, clickRows: EmailClickRow[]): boolean =>
+                !!featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_TIMELINE] && clickRows.length > 0,
+        ],
+        moreClicks: [
+            (s) => [s.email],
+            (email: TransactionalEmailLogDetailApi | null | undefined): boolean =>
+                !!email && hasMoreClicks(email.timeline),
+        ],
+        clickLinks: [
+            (s) => [s.email, s.activity, s.activityLoading, s.activityFailed],
+            (
+                email: TransactionalEmailLogDetailApi | null | undefined,
+                activity: PersonActivity | null,
+                activityLoading: boolean,
+                activityFailed: boolean
+            ): EmailClickLinks => {
+                if (!email?.distinct_id) {
+                    return 'none'
+                }
+                if (activityFailed && !activityLoading) {
+                    return 'failed'
+                }
+                return !activity || activityLoading ? 'loading' : 'loaded'
+            },
         ],
         breadcrumbs: [
             (_, p) => [p.messageId],

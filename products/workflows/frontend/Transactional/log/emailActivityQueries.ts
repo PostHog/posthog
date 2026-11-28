@@ -10,6 +10,7 @@ import type {
     TransactionalEmailActivityApi,
     TransactionalEmailActivityEventApi,
     TransactionalEmailLogEntryApi,
+    TransactionalEmailSendActivityApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
 import { ACTIVITY_WINDOW_DAYS, ActivityEvent, ActivityPerson, PersonActivity } from './emailActivity'
@@ -56,12 +57,15 @@ export async function fetchPersonActivity(projectId: number, messageId: string):
     return toPersonActivity(await transactionalEmailLogActivityRetrieve(String(projectId), messageId))
 }
 
-export function toPersonActivity(activity: TransactionalEmailActivityApi): PersonActivity {
+export function toPersonActivity(
+    activity: TransactionalEmailActivityApi & Partial<Pick<TransactionalEmailSendActivityApi, 'clicks'>>
+): PersonActivity {
     return {
         before: activity.before.map(toEvent),
         after: activity.after.map(toEvent),
         hasMoreBefore: activity.has_more_before,
         hasMoreAfter: activity.has_more_after,
+        clicks: (activity.clicks ?? []).map((click) => ({ at: click.at, link: click.link_url })),
     }
 }
 

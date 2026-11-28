@@ -11,6 +11,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
+import { TransactionalEmailClicks } from './TransactionalEmailClicks'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
 import {
@@ -30,8 +31,9 @@ export const scene: SceneExport<TransactionalEmailLogEntryLogicProps> = {
 export function TransactionalEmailLogEntryScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     // The scene binds the logic to the message ID in the URL.
-    const { email, emailLoading, emailFailed, emailPageUrl } = useValues(transactionalEmailLogEntryLogic)
-    const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
+    const { email, emailLoading, emailFailed, emailPageUrl, clicksShown, clickRows, clickLinks, moreClicks } =
+        useValues(transactionalEmailLogEntryLogic)
+    const { loadEmail, loadActivity } = useActions(transactionalEmailLogEntryLogic)
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -93,6 +95,14 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     <TransactionalEmailDeliveryProgress email={email} />
                     <div className="flex flex-col @3xl:flex-row gap-4 items-start">
                         <div className="w-full @3xl:flex-1 min-w-0 flex flex-col gap-4 order-last @3xl:order-none">
+                            {clicksShown && (
+                                <TransactionalEmailClicks
+                                    rows={clickRows}
+                                    links={clickLinks}
+                                    moreClicks={moreClicks}
+                                    onRetry={loadActivity}
+                                />
+                            )}
                             {/* A send that never went out kept no copy, so nothing links it to a person. */}
                             {email.action_id && <TransactionalEmailActivity email={email} />}
                             <TransactionalEmailRendered email={email} />
