@@ -70,6 +70,29 @@ const mockContext = {
     api: { config: { apiToken: 'phx_test' } },
 } as unknown as Context
 
+function createExecContext(): Context {
+    return {
+        api: {} as any,
+        cache: {} as any,
+        env: {
+            MCP_APPS_BASE_URL: undefined,
+            POSTHOG_ANALYTICS_API_KEY: undefined,
+            POSTHOG_ANALYTICS_HOST: undefined,
+            POSTHOG_API_BASE_URL: undefined,
+            POSTHOG_PUBLIC_URL: undefined,
+            POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
+            POSTHOG_UI_APPS_TOKEN: undefined,
+        },
+        stateManager: {
+            getApiKey: async () => ({ scopes: ['*'] }),
+            getAiConsentGiven: async () => true,
+        } as any,
+        sessionManager: new SessionManager({} as any),
+        getDistinctId: async () => 'test-distinct-id',
+        trackEvent: async () => {},
+    }
+}
+
 function createExec(
     tools: Tool<ZodObjectAny>[] = [makeMockTool()],
     mcpConsumer?: string,
@@ -2187,6 +2210,20 @@ describe('exec tool', () => {
             })
         })
 
+        // Agents reading a recording search these words, and an empty `vision-observations-list` is
+        // a dead end, so the scan tools that write a summary have to come back for them.
+        it.each(['session-recording', 'snapshot', 'snapshots', 'recording', 'replay', 'summary'])(
+            'returns the Replay Vision scan tools for "search %s"',
+            async (query) => {
+                const exec = createExec(await getToolsFromContext(createExecContext()))
+                const result = JSON.parse((await exec.handler(mockContext, { command: `search ${query}` })) as string)
+                const matches: string[] = Array.isArray(result) ? result : result.matches
+                expect(matches).toEqual(
+                    expect.arrayContaining(['vision-scanners-inline-scan', 'vision-requests-create'])
+                )
+            }
+        )
+
         it('tells the agent to retry with plain words when nothing matches at all', async () => {
             const exec = createExec([makeMockTool()])
             const result = JSON.parse((await exec.handler(mockContext, { command: 'search zzz-qqq' })) as string)
@@ -2554,29 +2591,6 @@ describe('exec tool', () => {
     })
 
     describe('exec tool description', () => {
-        function createExecContext(): Context {
-            return {
-                api: {} as any,
-                cache: {} as any,
-                env: {
-                    MCP_APPS_BASE_URL: undefined,
-                    POSTHOG_ANALYTICS_API_KEY: undefined,
-                    POSTHOG_ANALYTICS_HOST: undefined,
-                    POSTHOG_API_BASE_URL: undefined,
-                    POSTHOG_PUBLIC_URL: undefined,
-                    POSTHOG_MCP_APPS_ANALYTICS_BASE_URL: undefined,
-                    POSTHOG_UI_APPS_TOKEN: undefined,
-                },
-                stateManager: {
-                    getApiKey: async () => ({ scopes: ['*'] }),
-                    getAiConsentGiven: async () => true,
-                } as any,
-                sessionManager: new SessionManager({} as any),
-                getDistinctId: async () => 'test-distinct-id',
-                trackEvent: async () => {},
-            }
-        }
-
         // Claude Code truncates tool descriptions after 2048 characters, so the
         // exec tool's description must fit within that budget or clients will
         // silently drop the tail of the instructions.

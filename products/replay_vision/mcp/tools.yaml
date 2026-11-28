@@ -295,12 +295,14 @@ tools:
             carries the whole `scanner_result` and `error_reason`. To list observations for one specific scanner over
             time instead, use `vision-scanners-observations-list`.
         agent_note: >
-            Each observation's `_posthogUrl` opens the recording it analysed. To deep-link the moment a finding turns
-            on, call `vision-observations-get` for that row: its `scanner_result.model_output.reasoning_segments`
-            interleaves prose with `chip` segments, and a chip's `timestamp_ms` is the recording-relative offset of the
-            cited moment — append `?t=<seconds>` (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to
-            it. When you report a finding to someone, deep-link the one or two moments it turns on rather than only
-            describing them.
+            An empty `results` means nothing has scanned this session yet, so it has no AI summary. To create one, call
+            `vision-scanners-inline-scan` with the session id in `session_ids` and `built_in: "summarize_recording"`,
+            then poll this tool until the new observation reaches `succeeded`. Each observation's `_posthogUrl` opens
+            the recording it analysed. To deep-link the moment a finding turns on, call `vision-observations-get` for
+            that row: its `scanner_result.model_output.reasoning_segments` interleaves prose with `chip` segments, and a
+            chip's `timestamp_ms` is the recording-relative offset of the cited moment — append `?t=<seconds>`
+            (`timestamp_ms` / 1000, rounded down) to the URL to seek straight to it. When you report a finding to
+            someone, deep-link the one or two moments it turns on rather than only describing them.
         ui_app: vision-observation-list
         url_prefix: /replay
         response:
@@ -425,6 +427,13 @@ tools:
             concurrency limit come back as `skipped` with the reason in `scan_outcome`, rather than failing the call.
             After reporting results, offer to keep scanning new recordings (see the creating-replay-vision-scanners
             skill).
+        search_keywords:
+            - session-recording
+            - session replay
+            - summarize
+            - summary
+            - snapshots
+            - what happened
         requires_ai_consent: true
     vision-requests-get:
         operation: vision_requests_retrieve
@@ -815,6 +824,13 @@ tools:
             `vision-quota-get` first if the batch is large, since sessions past the monthly limit come back as
             `skipped_quota` instead of failing the call. If the question would also apply to future recordings, offer a
             scanner after answering (see the creating-replay-vision-scanners skill).
+        search_keywords:
+            - session-recording
+            - session replay
+            - summarize
+            - summary
+            - snapshots
+            - what happened
         ui_app: inline-scan
         requires_ai_consent: true
     vision-scanners-list:
