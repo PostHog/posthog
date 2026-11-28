@@ -65,7 +65,10 @@ const DrawerContent = React.forwardRef<React.ComponentRef<typeof DrawerPrimitive
                         {...props}
                     >
                         <DrawerHandle />
-                        <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col">{children}</div>
+                        {/* The 32rem cap centers a sheet's content. A side drawer sets its own width, so its content fills it. */}
+                        <div className="mx-auto flex min-h-0 w-full max-w-[32rem] flex-col group-data-[swipe-direction=left]/drawer-content:max-w-none group-data-[swipe-direction=left]/drawer-content:flex-1 group-data-[swipe-direction=right]/drawer-content:max-w-none group-data-[swipe-direction=right]/drawer-content:flex-1">
+                            {children}
+                        </div>
                     </DrawerPrimitive.Popup>
                 </DrawerPrimitive.Viewport>
             </DrawerPortal>

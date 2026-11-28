@@ -39,6 +39,7 @@ import { SidePanelTab } from '~/types'
 
 import { SceneContentContext } from './SceneContent'
 import { useFillSceneMenuBarSlot, useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
+import { useIsScenePeek } from './scenePeekContext'
 import { getSceneSettingsUrl } from './sceneSettingsUrl'
 
 /**
@@ -65,7 +66,11 @@ type SceneMenuBarProps = {
     className?: string
 }
 
-export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.Element {
+export function SceneMenuBar(props: SceneMenuBarProps): JSX.Element | null {
+    return useIsScenePeek() ? null : <SceneMenuBarContent {...props} />
+}
+
+function SceneMenuBarContent({ children, className }: SceneMenuBarProps): JSX.Element {
     const { sceneLayoutConfig } = useValues(sceneLayoutLogic)
     const layout = sceneLayoutConfig?.layout ?? 'app'
     const isPaddedLayout = PADDED_LAYOUTS.has(layout)

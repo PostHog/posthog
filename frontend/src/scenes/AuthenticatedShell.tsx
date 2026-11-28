@@ -41,6 +41,9 @@ const AgentTranscriptRequest = lazyWithRetry(() =>
         ({ AgentTranscriptRequest }) => ({ default: AgentTranscriptRequest })
     )
 )
+const ItemPeekDrawer = lazyWithRetry(() =>
+    import('~/layout/item-peek/ItemPeekDrawer').then(({ ItemPeekDrawer }) => ({ default: ItemPeekDrawer }))
+)
 const importCommand = (): Promise<typeof import('lib/components/Command/Command')> =>
     import('lib/components/Command/Command')
 const Command = lazyWithRetry(() => importCommand().then(({ Command }) => ({ default: Command })))
@@ -105,6 +108,15 @@ export default function AuthenticatedShell({ children }: { children: React.React
                         <Suspense fallback={null}>
                             <TerminalDock />
                         </Suspense>
+                    </ErrorBoundary>
+                )}
+                {featureFlags[FEATURE_FLAGS.ITEM_PEEK] && (
+                    <ErrorBoundary>
+                        <ChunkLoadErrorBoundary>
+                            <Suspense fallback={null}>
+                                <ItemPeekDrawer />
+                            </Suspense>
+                        </ChunkLoadErrorBoundary>
                     </ErrorBoundary>
                 )}
                 {hasOpenedCommand && (

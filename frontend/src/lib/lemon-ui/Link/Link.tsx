@@ -13,6 +13,7 @@ import { hasDangerousScheme, isExternalLink } from 'lib/utils/url'
 import { urlToResource } from 'scenes/urls'
 
 import { Tooltip, TooltipProps } from '../Tooltip'
+import { claimLinkClick } from './linkPeekRegistry'
 import { useLinkDrag } from './useLinkDrag'
 
 type RoutePart = string | Record<string, any>
@@ -169,6 +170,16 @@ export const LinkPrimitive: React.FC<LinkPrimitiveProps & React.RefAttributes<HT
 
             if (!target && to && !browserOwnedLink && !disableClientSideRouting && !shouldForcePageLoad(to)) {
                 event.preventDefault()
+                // Shift and Alt keep their browser meaning (new window, download), so only a plain click is offered.
+                if (
+                    typeof to === 'string' &&
+                    !preventClick &&
+                    !event.shiftKey &&
+                    !event.altKey &&
+                    claimLinkClick(to, event.currentTarget)
+                ) {
+                    return
+                }
                 if (to && to !== '#' && !preventClick) {
                     if (Array.isArray(to)) {
                         router.actions.push(...to)

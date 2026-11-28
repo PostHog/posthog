@@ -26,6 +26,7 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneTitleSection } from './QuillSceneTitleSection'
 import { SceneBreadcrumbBackButton } from './SceneBreadcrumbs'
 import { SceneDescription } from './SceneDescription'
+import { useIsScenePeek } from './scenePeekContext'
 import { sceneResourceIcon } from './sceneResourceIcon'
 import { SceneTitlePanelButton } from './SceneTitlePanelButton'
 import { useSceneNameEditing } from './useSceneNameEditing'
@@ -147,6 +148,10 @@ export type SceneMainTitleProps = {
 
 export function SceneTitleSection(props: SceneMainTitleProps): JSX.Element | null {
     const { todayRailEnabled } = useValues(todayShellLogic)
+    const isPeek = useIsScenePeek()
+    if (isPeek) {
+        return null
+    }
     return todayRailEnabled ? <QuillSceneTitleSection {...props} /> : <LemonSceneTitleSection {...props} />
 }
 

@@ -4,9 +4,12 @@ import { IconCopy, IconX } from '@posthog/icons'
 import { LemonButton, LemonCheckbox, LemonDrawer, LemonTabs } from '@posthog/lemon-ui'
 
 import { JSONViewer } from 'lib/components/JSONViewer'
+import { PeekDrawer } from 'lib/components/PeekDrawer/PeekDrawer'
 import { TZLabel } from 'lib/components/TZLabel'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useApmMobileLayout } from 'lib/hooks/useApmMobileLayout'
 import { IconLink } from 'lib/lemon-ui/icons'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 
 import { PropertyFilterType, PropertyOperator } from '~/types'
@@ -64,6 +67,8 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
         useValues(logDetailsModalLogic)
     const { closeLogDetails, setJsonParseAllFields, setActiveTab } = useActions(logDetailsModalLogic)
     const { addFilter, copyLinkToLog } = useActions(logsViewerLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const itemPeekEnabled = !!featureFlags[FEATURE_FLAGS.ITEM_PEEK]
 
     const handleApplyFilter = (key: string, value: string, attributeType: 'log' | 'resource'): void => {
         const filterType =
@@ -81,6 +86,140 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
         ? (parseJsonFields(selectedLog.originalLog) as object)
         : selectedLog.originalLog
 
+    const headerActions = (
+        <>
+            <CopyLogButton log={selectedLog} />
+            <LemonButton
+                size="xsmall"
+                icon={<IconLink />}
+                onClick={() => copyLinkToLog(selectedLog.uuid)}
+                tooltip="Copy link to log"
+                aria-label="Copy link to log"
+                data-attr="logs-viewer-copy-link"
+            />
+            <LogContextSelector log={selectedLog} />
+        </>
+    )
+
+    const facts = (
+        <div className="flex items-center justify-between flex-wrap gap-2">
+            <div className={cn('flex items-center gap-6', mobileLayout && 'flex-wrap')}>
+                <div className="flex items-center gap-2">
+                    <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
+                    <span className="text-xs font-mono">
+                        <TZLabel
+                            time={selectedLog.timestamp}
+                            formatDate="YYYY-MM-DD"
+                            formatTime="HH:mm:ss.SSS"
+                            displayTimezone={timezone}
+                            timestampStyle="absolute"
+                        />
+                    </span>
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-muted text-xs font-semibold uppercase">Severity</span>
+                    <div className="flex items-center gap-1.5">
+                        <div className={`w-2 h-2 rounded-full ${severityColor}`} />
+                        <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
+                    </div>
+                </div>
+            </div>
+            <LogContextLinks
+                surface="drawer"
+                log={selectedLog}
+                // The count and the tab share one logic instance, so the counted scope is already
+                // selected. Passing it as the initial scope would reapply it each time the tab
+                // remounts and overwrite a scope the user picked in the tab.
+                onOpenRelatedErrors={() => setActiveTab('related-errors')}
+                onLeave={closeLogDetails}
+            />
+        </div>
+    )
+
+    const tabs = (
+        <LemonTabs
+            activeKey={activeTab}
+            onChange={(key) => setActiveTab(key as LogDetailsTab)}
+            tabs={[
+                {
+                    key: 'details',
+                    label: 'Details',
+                    content: <LogDetailsTabContent log={selectedLog} />,
+                },
+                {
+                    key: 'raw',
+                    label: 'Raw',
+                    content: (
+                        <div className="flex flex-col gap-2">
+                            <div className={cn('flex items-center justify-between', mobileLayout && 'flex-wrap gap-2')}>
+                                <LemonCheckbox
+                                    checked={jsonParseAllFields}
+                                    onChange={setJsonParseAllFields}
+                                    label="JSON parse all fields"
+                                    size="small"
+                                />
+                                <LemonButton
+                                    size="xsmall"
+                                    type="secondary"
+                                    icon={<IconCopy />}
+                                    onClick={() => copyLogRaw(selectedLog)}
+                                    data-attr="logs-viewer-copy-raw"
+                                >
+                                    Copy raw
+                                </LemonButton>
+                            </div>
+                            <div className="p-2 bg-bg-light rounded overflow-auto">
+                                <JSONViewer src={displayData} collapsed={2} sortKeys />
+                            </div>
+                        </div>
+                    ),
+                },
+                {
+                    key: 'related-errors',
+                    label: 'Related errors',
+                    content: (
+                        <RelatedErrorsTab
+                            log={selectedLog}
+                            sessionId={sessionId}
+                            initialScope={relatedErrorsInitialScope}
+                        />
+                    ),
+                },
+                {
+                    key: 'explore-ai',
+                    label: 'Explore with AI',
+                    content: (
+                        <LogExploreAI
+                            logUuid={selectedLog.uuid}
+                            logTimestamp={selectedLog.timestamp}
+                            onApplyFilter={handleApplyFilter}
+                        />
+                    ),
+                },
+                {
+                    key: 'comments',
+                    label: 'Comments',
+                    content: <LogComments log={selectedLog} />,
+                },
+            ]}
+        />
+    )
+
+    if (itemPeekEnabled) {
+        return (
+            <PeekDrawer
+                open={isLogDetailsOpen}
+                onClose={closeLogDetails}
+                title="Log details"
+                actions={headerActions}
+                subheader={facts}
+                data-attr="logs-viewer-log-details-drawer"
+            >
+                {tabs}
+            </PeekDrawer>
+        )
+    }
+
     return (
         <LemonDrawer
             isOpen={isLogDetailsOpen}
@@ -97,16 +236,7 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                     <div className={cn('flex items-center justify-between', mobileLayout && 'flex-wrap gap-2')}>
                         <h3>Log details</h3>
                         <div className="flex items-center gap-1">
-                            <CopyLogButton log={selectedLog} />
-                            <LemonButton
-                                size="xsmall"
-                                icon={<IconLink />}
-                                onClick={() => copyLinkToLog(selectedLog.uuid)}
-                                tooltip="Copy link to log"
-                                aria-label="Copy link to log"
-                                data-attr="logs-viewer-copy-link"
-                            />
-                            <LogContextSelector log={selectedLog} />
+                            {headerActions}
                             <LemonButton
                                 size="xsmall"
                                 icon={<IconX />}
@@ -116,112 +246,9 @@ export function LogDetailsModal({ timezone }: LogDetailsModalProps): JSX.Element
                             />
                         </div>
                     </div>
-                    <div className="flex items-center justify-between flex-wrap gap-2">
-                        <div className={cn('flex items-center gap-6', mobileLayout && 'flex-wrap')}>
-                            <div className="flex items-center gap-2">
-                                <span className="text-muted text-xs font-semibold uppercase">Timestamp</span>
-                                <span className="text-xs font-mono">
-                                    <TZLabel
-                                        time={selectedLog.timestamp}
-                                        formatDate="YYYY-MM-DD"
-                                        formatTime="HH:mm:ss.SSS"
-                                        displayTimezone={timezone}
-                                        timestampStyle="absolute"
-                                    />
-                                </span>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <span className="text-muted text-xs font-semibold uppercase">Severity</span>
-                                <div className="flex items-center gap-1.5">
-                                    <div className={`w-2 h-2 rounded-full ${severityColor}`} />
-                                    <span className="font-mono text-xs">{selectedLog.severity_text.toUpperCase()}</span>
-                                </div>
-                            </div>
-                        </div>
-                        <LogContextLinks
-                            surface="drawer"
-                            log={selectedLog}
-                            // The count and the tab share one logic instance, so the counted scope is already
-                            // selected. Passing it as the initial scope would reapply it each time the tab
-                            // remounts and overwrite a scope the user picked in the tab.
-                            onOpenRelatedErrors={() => setActiveTab('related-errors')}
-                            onLeave={closeLogDetails}
-                        />
-                    </div>
+                    {facts}
                 </LemonDrawer.Header>
-                <LemonDrawer.Content>
-                    <LemonTabs
-                        activeKey={activeTab}
-                        onChange={(key) => setActiveTab(key as LogDetailsTab)}
-                        tabs={[
-                            {
-                                key: 'details',
-                                label: 'Details',
-                                content: <LogDetailsTabContent log={selectedLog} />,
-                            },
-                            {
-                                key: 'raw',
-                                label: 'Raw',
-                                content: (
-                                    <div className="flex flex-col gap-2">
-                                        <div
-                                            className={cn(
-                                                'flex items-center justify-between',
-                                                mobileLayout && 'flex-wrap gap-2'
-                                            )}
-                                        >
-                                            <LemonCheckbox
-                                                checked={jsonParseAllFields}
-                                                onChange={setJsonParseAllFields}
-                                                label="JSON parse all fields"
-                                                size="small"
-                                            />
-                                            <LemonButton
-                                                size="xsmall"
-                                                type="secondary"
-                                                icon={<IconCopy />}
-                                                onClick={() => copyLogRaw(selectedLog)}
-                                                data-attr="logs-viewer-copy-raw"
-                                            >
-                                                Copy raw
-                                            </LemonButton>
-                                        </div>
-                                        <div className="p-2 bg-bg-light rounded overflow-auto">
-                                            <JSONViewer src={displayData} collapsed={2} sortKeys />
-                                        </div>
-                                    </div>
-                                ),
-                            },
-                            {
-                                key: 'related-errors',
-                                label: 'Related errors',
-                                content: (
-                                    <RelatedErrorsTab
-                                        log={selectedLog}
-                                        sessionId={sessionId}
-                                        initialScope={relatedErrorsInitialScope}
-                                    />
-                                ),
-                            },
-                            {
-                                key: 'explore-ai',
-                                label: 'Explore with AI',
-                                content: (
-                                    <LogExploreAI
-                                        logUuid={selectedLog.uuid}
-                                        logTimestamp={selectedLog.timestamp}
-                                        onApplyFilter={handleApplyFilter}
-                                    />
-                                ),
-                            },
-                            {
-                                key: 'comments',
-                                label: 'Comments',
-                                content: <LogComments log={selectedLog} />,
-                            },
-                        ]}
-                    />
-                </LemonDrawer.Content>
+                <LemonDrawer.Content>{tabs}</LemonDrawer.Content>
             </div>
         </LemonDrawer>
     )
