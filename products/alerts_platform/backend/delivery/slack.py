@@ -112,7 +112,7 @@ def _verbatim_section(text: str) -> dict[str, Any]:
 
 def _details_blocks(details: tuple[MessageDetail, ...]) -> list[dict[str, Any]]:
     # Escaping grows each `&` fivefold, and a link cut in half is broken, so only whole links that
-    # fit go in. The rest stay in the text section, which clips.
+    # fit go in.
     links: list[str] = []
     text: list[MessageDetail] = []
     room = MAX_SECTION_CHARS
