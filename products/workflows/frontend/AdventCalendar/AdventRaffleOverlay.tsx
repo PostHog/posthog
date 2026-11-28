@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { adventCalendarLogic } from './adventCalendarLogic'
-import { ADVENT_LAST_DAY, ADVENT_YEAR } from './adventContent'
+import { ADVENT_LAST_DAY } from './adventContent'
 import { AdventPoint } from './adventGraph'
 import { AdventTicketFlight } from './AdventTicketFlight'
-import { ADVENT_FLOW_EXIT_ID, AdventFlowLayout, AdventFlowRect } from './flow/adventFlowLayout'
+import { AdventFlowLayout, AdventFlowRect } from './flow/adventFlowLayout'
 import { AdventFlowView } from './flow/AdventFlowStage'
 
 const centerOf = ({ x, y, width, height }: AdventFlowRect): AdventPoint => ({ x: x + width / 2, y: y + height / 2 })
@@ -17,7 +17,7 @@ export function AdventRaffleOverlay({
     view: AdventFlowView
     layout: AdventFlowLayout
 }): JSX.Element | null {
-    const { ticketFlight, selectedDoorId, localDate } = useValues(adventCalendarLogic)
+    const { ticketFlight, selectedDoorId } = useValues(adventCalendarLogic)
     const { landTicket } = useActions(adventCalendarLogic)
     const latestView = useRef(view)
     latestView.current = view
@@ -27,13 +27,6 @@ export function AdventRaffleOverlay({
     const isHeldByCard = layout.orientation === 'column' && !!selectedDoorId
     const presentId = present?.id ?? null
     const flightDay = !isHeldByCard && presentId ? ticketFlight : null
-    const isOver = localDate > new Date(ADVENT_YEAR, 11, ADVENT_LAST_DAY).getTime()
-
-    useEffect(() => {
-        if (isOver) {
-            latestView.current.showNode(ADVENT_FLOW_EXIT_ID)
-        }
-    }, [isOver])
 
     useEffect(() => {
         if (flightDay === null || presentId === null) {

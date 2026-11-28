@@ -54,7 +54,6 @@ describe('AdventRaffleFlowStage', () => {
         stage = render(<AdventRaffleFlowStage />)
     }
 
-    const track = (): HTMLElement | null => document.querySelector('.AdventFlowStage__track')
     const door = (day: number): HTMLElement =>
         document.querySelector(`[data-attr="advent-door-${day}"], [data-attr="advent-hog-${day}"]`) as HTMLElement
     const card = (): HTMLElement | null => document.querySelector('[data-attr="advent-door-card"]')
@@ -93,24 +92,6 @@ describe('AdventRaffleFlowStage', () => {
                 (edge) => edge.getAttribute('data-edge')?.split('>')[1].split('-')[1]
             )
         ).toEqual(['1', '3', '4'])
-    })
-
-    it('scrolls the phone column past the last door to the exit once the draw date has passed', async () => {
-        const scrollOn = async (now: Date): Promise<number> => {
-            await renderOn(now, DAYS.slice(0, 23), PHONE)
-            const scrollTop = track()?.scrollTop ?? 0
-            stage?.unmount()
-            stage = null
-            adventCalendarLogic.findMounted()?.unmount()
-            jest.useRealTimers()
-            return scrollTop
-        }
-
-        useMocks(calendarMocks([]))
-        const onTheLastDay = await scrollOn(new Date(2026, 11, 24, 9, 0))
-        const afterTheDraw = await scrollOn(new Date(2026, 11, 26, 9, 0))
-
-        expect(afterTheDraw).toBeGreaterThan(onTheLastDay)
     })
 
     it('opens the card on the present once its opening has played', async () => {
