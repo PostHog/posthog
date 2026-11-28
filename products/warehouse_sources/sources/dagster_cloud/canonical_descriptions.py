@@ -3,6 +3,54 @@ from products.warehouse_sources.sources.sdk import CanonicalDescriptions
 # Timestamp columns are Dagster epoch-seconds floats at the API, normalized to ISO-8601 UTC strings
 # on ingest (see dagster_cloud.py:_epoch_to_iso).
 CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
+    "asset_check_executions": {
+        "description": "Execution history for current asset checks in the deployment, including checks without an evaluation.",
+        "docs_url": "https://docs.dagster.io/api/graphql",
+        "columns": {
+            "id": "Execution identifier for the check.",
+            "assetId": "Identifier of the asset that the check evaluates.",
+            "checkName": "Name of the asset check.",
+            "runId": "Identifier of the run that started the check.",
+            "status": "Current status of the check execution.",
+            "timestamp": "Time when the check run started.",
+            "stepKey": "Key of the step that ran the check, when available.",
+            "evaluation": "Result and target materialization, when available.",
+        },
+    },
+    "asset_slas": {
+        "description": "Current service level agreement state for assets that have an agreement.",
+        "docs_url": "https://docs.dagster.io/api/graphql",
+        "columns": {
+            "assetKeyId": "Asset key path as a JSON string.",
+            "assetKey": "Asset key and its path segments.",
+            "state": "Current state: passing, warning, or violating.",
+            "since": "Time when the asset entered its current state.",
+            "reasonMd": "Explanation of the current state, when available.",
+        },
+    },
+    "repositories": {
+        "description": "Repositories in the deployment, with their jobs and code locations.",
+        "docs_url": "https://docs.dagster.io/api/graphql",
+        "columns": {
+            "id": "Identifier of the repository.",
+            "name": "Name of the repository.",
+            "origin": "Repository origin referenced by runs.",
+            "location": "Code location that contains the repository.",
+            "jobs": "Jobs in the repository.",
+        },
+    },
+    "code_locations": {
+        "description": "Workspace code locations, including locations that have not loaded.",
+        "docs_url": "https://docs.dagster.io/api/graphql",
+        "columns": {
+            "id": "Identifier of the workspace location entry.",
+            "name": "Name of the code location.",
+            "loadStatus": "Load status of the code location.",
+            "updatedTimestamp": "Time when the location entry last changed.",
+            "versionKey": "Version key of the location entry.",
+            "locationOrLoadError": "Loaded location and its repositories, or the type of load error.",
+        },
+    },
     "runs": {
         "description": "Historical job/pipeline run records for the deployment, used to compute reliability, DORA, and SLA metrics.",
         "docs_url": "https://docs.dagster.io/api/graphql",
