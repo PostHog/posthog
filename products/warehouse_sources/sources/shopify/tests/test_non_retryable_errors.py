@@ -2,6 +2,10 @@ import pytest
 
 import requests
 
+from products.warehouse_sources.backend.temporal.data_imports.external_data_job import _non_retryable_error_message
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
+from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.shopify._config import ShopifyAuthMethodConfig, ShopifySourceConfig
 from products.warehouse_sources.sources.shopify.source import ShopifySource
 
 
@@ -29,6 +33,52 @@ def test_graphql_access_denied_is_non_retryable(error_message):
     assert any(pattern in error_message for pattern in patterns), (
         f"GraphQL access-denied error '{error_message}' should match a non-retryable pattern"
     )
+
+
+@pytest.mark.parametrize(
+    "graphql_errors,expected_message",
+    [
+        (
+            ["Access denied for products field. Required access: `read_products` access scope."],
+            "Your Shopify access token is missing the read_products access scope this table needs. "
+            "Add it to your Shopify app and update the app on your store, then re-enable the sync.",
+        ),
+        (
+            [
+                "Access denied for products field. Required access: `read_products` access scope.",
+                "Access denied for resourcePublications field. Required access: `read_publications` access scope.",
+            ],
+            "Your Shopify access token is missing the read_products, read_publications access scopes this "
+            "table needs. Add them to your Shopify app and update the app on your store, then re-enable the sync.",
+        ),
+        (
+            ["Access denied for products field."],
+            "Your Shopify access token is missing an access scope this table needs. Add the missing scope "
+            "to your Shopify app and update the app on your store, then re-enable the sync.",
+        ),
+        (
+            ["Access denied for products field.", "Field 'legacyResourceId' doesn't exist on type 'Product'"],
+            "Your Shopify access token is missing an access scope this table needs. Add the missing scope "
+            "to your Shopify app and update the app on your store, then re-enable the sync.",
+        ),
+    ],
+)
+def test_sync_access_denied_names_the_scope_shopify_reports(graphql_errors, expected_message):
+    def script(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(json={"errors": [{"message": message} for message in graphql_errors]})
+
+    config = ShopifySourceConfig(
+        shopify_store_id="my-store",
+        auth_method=ShopifyAuthMethodConfig(selection="access_token", shopify_access_token="shpat_test"),
+    )
+    result = SourceDriver(ShopifySource(), config).run("products", script)
+
+    assert result.raised is not None
+    raised = str(result.raised)
+    non_retryable_errors = ShopifySource().get_non_retryable_errors()
+    assert error_message_matches(raised, non_retryable_errors.keys())
+    customer_message = _non_retryable_error_message(non_retryable_errors, raised) or raised
+    assert customer_message == expected_message
 
 
 @pytest.mark.parametrize(

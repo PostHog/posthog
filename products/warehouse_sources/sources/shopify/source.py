@@ -36,6 +36,7 @@ from products.warehouse_sources.sources.shopify.constants import (
 from products.warehouse_sources.sources.shopify.settings import ENDPOINT_CONFIGS
 from products.warehouse_sources.sources.shopify.shopify import (
     CREATED_AT_FILTER_OPERATORS,
+    SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX,
     SHOPIFY_ACCESS_TOKEN_APP_NOT_INSTALLED_ERROR,
     SHOPIFY_ACCESS_TOKEN_AUTH_ERROR,
     SHOPIFY_ACCESS_TOKEN_INVALID_CLIENT_ERROR,
@@ -240,6 +241,9 @@ class ShopifySource(ResumableSource[ShopifySourceConfig, ShopifyResumeConfig]):
             # scope required to read this resource. The scope can't change on retry, so fail
             # fast and tell the user to add the scope, then re-enable the sync.
             SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR: SHOPIFY_GRAPHQL_ACCESS_DENIED_ERROR_MESSAGE,
+            # `ShopifyAccessDeniedError` already carries the customer message, naming the scope
+            # Shopify reported, so the match keeps it rather than swapping in the generic copy.
+            SHOPIFY_ACCESS_SCOPE_MISSING_PREFIX: None,
             # GraphQL "This app is not approved to access the <object> object" — the store's
             # Shopify plan doesn't grant apps access to customer PII. No scope or reconnect can
             # fix this; the merchant must upgrade their plan or stop syncing tables with PII.
