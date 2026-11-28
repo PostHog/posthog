@@ -102,6 +102,53 @@ class TestQuotaMigration(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("before_shared_reconcile", False, True, True),
+            ("before_secondary_reconcile", True, True, True),
+            ("missing_from_secondary_snapshot", False, True, False),
+            ("missing_from_both_snapshots", False, False, False),
+        ]
+    )
+    def test_rows_synced_reconcile_does_not_restore_a_cleared_limit(
+        self, _name: str, clear_after_shared_reconcile: bool, in_shared: bool, in_secondary: bool
+    ) -> None:
+        self.enterContext(patch("posthog.quota_migration.monotonic", return_value=100))
+        self.enterContext(patch.object(quota_redis, "monotonic", return_value=100))
+        resource = QuotaResource.ROWS_SYNCED
+        key = f"{self.cache.value}{resource.value}"
+        original = {"removed": 1900000000, "renewed": 1794484801, "stale": 1900000000}
+        add_limited_team_tokens(resource, original, self.cache)
+        if not in_shared:
+            original.pop("removed")
+            self.shared.zrem(key, "removed")
+        if not in_secondary:
+            self.secondary.zrem(key, "removed")
+        snapshots = snapshot_quota_stores({key: list(original)})
+        verdict = {"removed": 1900000100, "renewed": 1900000100, "new": 1900000200}
+
+        with time_machine.travel("2026-11-12T12:00:02Z", tick=False):
+            if not clear_after_shared_reconcile:
+                remove_limited_team_tokens(resource, ["removed"], self.cache)
+            reconcile_limited_team_tokens(resource, original, verdict, self.cache, store_snapshots=snapshots)
+            if clear_after_shared_reconcile:
+                remove_limited_team_tokens(resource, ["removed"], self.cache)
+            reconcile_secondary_quota_sets(snapshots, {key: verdict})
+
+        expected = {b"renewed": 1900000100, b"new": 1900000200}
+        assert dict(self.shared.zrange(key, 0, -1, withscores=True)) == expected
+        assert dict(self.secondary.zrange(key, 0, -1, withscores=True)) == expected
+
+        with time_machine.travel("2026-11-12T12:00:03Z", tick=False):
+            next_snapshot = snapshot_quota_stores({key: ["new", "renewed"]})
+            reconcile_limited_team_tokens(
+                resource, next_snapshot.shared[key], verdict, self.cache, store_snapshots=next_snapshot
+            )
+            reconcile_secondary_quota_sets(next_snapshot, {key: verdict})
+
+        assert self.shared.zscore(key, "removed") == verdict["removed"]
+        assert self.secondary.zscore(key, "removed") == verdict["removed"]
+
+    @parameterized.expand(
+        [
             ("stale", {"stale": 1900000000}, ["stale"], {}, {}),
             ("additions", {}, [], {"new": 1900000100}, {b"new": 1900000100.0}),
             (

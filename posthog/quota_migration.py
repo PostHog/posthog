@@ -1,5 +1,5 @@
 from collections.abc import Callable, Iterator, Mapping, Sequence
-from dataclasses import field
+from dataclasses import field, replace
 from functools import partial
 from math import inf
 from time import monotonic, sleep, time
@@ -16,7 +16,13 @@ from redis.exceptions import (
 )
 
 from posthog.dataclasses import frozen
-from posthog.quota_redis import QuotaRedisClient, get_secondary_quota_redis_client, reconcile_quota_set
+from posthog.quota_redis import (
+    ROWS_SYNCED_LIMIT_KEY,
+    QuotaRedisClient,
+    get_secondary_quota_redis_client,
+    reconcile_quota_set,
+    rows_synced_snapshot_cutoff,
+)
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)
@@ -144,6 +150,8 @@ class QuotaReconciliationSnapshots:
     shared: Mapping[str, Sequence[str]] = field(repr=False)
     secondary: Mapping[str, Sequence[str]] | None = field(repr=False)
     secondary_budget_seconds_left: float
+    shared_rows_synced_cutoff: int | None = None
+    secondary_rows_synced_cutoff: int | None = None
 
     def without_tokens(self, protected_tokens: set[str]) -> "QuotaReconciliationSnapshots":
         def exclude(snapshot: Mapping[str, Sequence[str]]) -> dict[str, list[str]]:
@@ -151,10 +159,10 @@ class QuotaReconciliationSnapshots:
                 key: [token for token in tokens if token not in protected_tokens] for key, tokens in snapshot.items()
             }
 
-        return QuotaReconciliationSnapshots(
+        return replace(
+            self,
             shared=exclude(self.shared),
             secondary=None if self.secondary is None else exclude(self.secondary),
-            secondary_budget_seconds_left=self.secondary_budget_seconds_left,
         )
 
 
@@ -165,17 +173,22 @@ def snapshot_quota_stores(selected: Mapping[str, Sequence[str]]) -> QuotaReconci
     # One retry allowance for all keys, because the snapshot delays the shared writes that follow it.
     retries = _read_retries()
 
-    def read(client: QuotaRedisClient) -> dict[str, list[str]]:
+    def read(client: QuotaRedisClient) -> tuple[dict[str, list[str]], int | None]:
+        cutoff = rows_synced_snapshot_cutoff(client, selected)
         snapshot: dict[str, list[str]] = {}
         for key in selected:
             client, scores = _read_quota_set(client, key, retries, deadline)
             snapshot[key] = [token.decode("utf-8") for token, score in scores.items() if score >= now]
-        return snapshot
+        return snapshot, cutoff
 
+    shared_cutoff = rows_synced_snapshot_cutoff(get_client(), selected) if ROWS_SYNCED_LIMIT_KEY in selected else None
+    secondary = run_secondary_quota_operation("snapshot", read, resource="snapshot", maintenance=True)
     return QuotaReconciliationSnapshots(
         shared=selected,
-        secondary=run_secondary_quota_operation("snapshot", read, resource="snapshot", maintenance=True),
+        secondary=None if secondary is None else secondary[0],
         secondary_budget_seconds_left=max(deadline - monotonic(), 0.0),
+        shared_rows_synced_cutoff=shared_cutoff,
+        secondary_rows_synced_cutoff=None if secondary is None else secondary[1],
     )
 
 
@@ -203,6 +216,9 @@ def reconcile_secondary_quota_sets(
                 tokens=tokens,
                 now=now,
                 run_deadline=run_deadline,
+                rows_synced_cutoff=store_snapshots.secondary_rows_synced_cutoff
+                if key == ROWS_SYNCED_LIMIT_KEY
+                else None,
             ),
             resource=key,
             maintenance=True,

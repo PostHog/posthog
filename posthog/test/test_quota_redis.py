@@ -10,9 +10,11 @@ from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from urllib.parse import quote
+from uuid import uuid4
 
 from unittest.mock import Mock, patch
 
+from django.conf import settings
 from django.test import SimpleTestCase, override_settings
 
 from cryptography import x509
@@ -30,6 +32,68 @@ from redis.exceptions import (
 )
 
 from posthog import quota_redis
+
+
+class TestRowsSyncedQuotaRedis(SimpleTestCase):
+    def setUp(self) -> None:
+        self.redis = Redis.from_url(settings.REDIS_URL)
+        self.addCleanup(self.redis.close)
+        self.key = f"test-quota:{uuid4().hex}:rows_synced"
+        self.addCleanup(self.redis.delete, self.key)
+        self.enterContext(patch.object(quota_redis, "ROWS_SYNCED_LIMIT_KEY", self.key))
+
+    def _marker_key(self, token: str) -> str:
+        key = quota_redis._rows_synced_clear_key(token)
+        self.addCleanup(self.redis.delete, key)
+        return key
+
+    def test_reconciliation_honors_clears_at_or_after_the_snapshot(self) -> None:
+        self.enterContext(patch.object(quota_redis, "monotonic", return_value=100))
+        removed_key = self._marker_key("removed")
+        absent_key = self._marker_key("absent")
+        cutoff = quota_redis.rows_synced_snapshot_cutoff(self.redis, {self.key: ["removed"]})
+        assert cutoff is not None
+        now = cutoff / 1_000_000
+        expiry = int(now) + 300
+        self.redis.zadd(self.key, {"removed": expiry})
+
+        quota_redis.remove_quota_tokens(self.redis, self.key, ["removed", "absent"])
+        assert self.redis.zrange(self.key, 0, -1) == []
+        cleared_at = self.redis.get(removed_key)
+        assert isinstance(cleared_at, bytes)
+        assert int(cleared_at) >= cutoff
+        assert self.redis.get(absent_key) == cleared_at
+
+        verdict = dict.fromkeys(["removed", "absent", "new"], expiry)
+        for stale_cutoff in (cutoff, int(cleared_at)):
+            quota_redis.reconcile_quota_set(
+                self.redis, self.key, ["removed"], verdict, now, rows_synced_cutoff=stale_cutoff
+            )
+            assert self.redis.zrange(self.key, 0, -1) == [b"new"]
+
+        quota_redis.reconcile_quota_set(
+            self.redis, self.key, ["new"], verdict, now, rows_synced_cutoff=int(cleared_at) + 1
+        )
+        assert self.redis.zrange(self.key, 0, -1) == [b"absent", b"new", b"removed"]
+
+    def test_billing_clears_expire_independently_of_other_batches(self) -> None:
+        original_key = self._marker_key("original")
+        new_tokens = ["first", "second", "third"]
+        new_keys = [self._marker_key(token) for token in new_tokens]
+        quota_redis.remove_quota_tokens(self.redis, self.key, ["original"])
+        retention = quota_redis._ROWS_SYNCED_CLEAR_RETENTION_SECONDS * 1_000
+        original_ttl = self.redis.pttl(original_key)
+        assert isinstance(original_ttl, int) and 0 < original_ttl <= retention
+        assert self.redis.pexpire(original_key, 60_000)
+        original_expiry = self.redis.pexpiretime(original_key)
+
+        with patch.object(quota_redis, "ROWS_SYNCED_WRITE_BATCH_SIZE", 2):
+            quota_redis.remove_quota_tokens(self.redis, self.key, new_tokens)
+
+        assert self.redis.pexpiretime(original_key) == original_expiry
+        for key in new_keys:
+            ttl = self.redis.pttl(key)
+            assert isinstance(ttl, int) and 60_000 < ttl <= retention
 
 
 @override_settings(
