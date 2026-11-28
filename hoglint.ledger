@@ -2253,6 +2253,7 @@ level:isolated	subscriptions	1
 level:isolated	today	1
 level:isolated	ui_customization	1
 level:isolated	uptime_monitoring	1
+level:isolated	user_journeys	1
 level:isolated	visual_review	1
 level:isolated	warehouse_sources	1
 level:isolated	warehouse_suggestions	1
