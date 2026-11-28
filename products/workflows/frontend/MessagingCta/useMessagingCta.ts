@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
@@ -37,7 +37,6 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { isDismissed } = useValues(messagingCtaDismissalLogic({ viewerId, placement: key }))
     const { dismiss } = useActions(messagingCtaDismissalLogic({ viewerId, placement: key }))
-    const [attemptId] = useState(uuid)
 
     const placement = placementFor(key)
     const flag = areaFlag(placement.area) as FeatureFlagKey
@@ -47,6 +46,8 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const eligible =
         receivedFeatureFlags && destinationAvailable && !isDismissed && !messageAudienceAccessDisabledReason()
     const state = placementState(key, { value: () => flagValue, payload: () => getFeatureFlagPayload(flag) })
+    const showingTo = eligible && state.active ? viewerId : null
+    const attemptId = useMemo(() => (showingTo === null ? undefined : uuid()), [showingTo])
 
     useEffect(() => {
         if (eligible && typeof flagValue === 'string') {
