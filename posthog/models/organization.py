@@ -85,6 +85,9 @@ class OrganizationUsageInfo(TypedDict):
     ai_automatic_reload_enabled: NotRequired[bool]
     ai_start_day: NotRequired[str]
     ai_end_day: NotRequired[str]
+    # When billing first saw the organization's subscription past due or unpaid in Stripe, as an ISO 8601 time.
+    # Absent while the subscription is current. The AI gateway reads it from llm_gateway_org.json.
+    subscription_past_due_since: NotRequired[str]
 
 
 @frozen

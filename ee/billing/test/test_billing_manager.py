@@ -2416,12 +2416,14 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
             ai_automatic_reload_enabled=True,
             ai_start_day="2026-12-01",
             ai_end_day=None,
+            subscription_past_due_since="2026-11-03T14:22:05Z",
         )
 
         assert usage["ai_low_balance_threshold_usd"] == "5.50"
         assert usage["ai_automatic_reload_enabled"] is True
         assert usage["ai_start_day"] == "2026-12-01"
         assert "ai_end_day" not in usage
+        assert usage["subscription_past_due_since"] == "2026-11-03T14:22:05Z"
         project.assert_called_once_with(str(self.organization.id))
 
     @override_settings(AI_GATEWAY_REDIS_URL="redis://localhost:6379/1")
@@ -2456,21 +2458,32 @@ class TestAICreditSettingsFromBillingStatus(BaseTest):
         project.assert_not_called()
 
     def test_a_status_without_the_settings_keeps_them(self):
-        self._apply(ai_low_balance_threshold_usd="5.00", ai_automatic_reload_enabled=True, ai_start_day="2026-12-01")
+        self._apply(
+            ai_low_balance_threshold_usd="5.00",
+            ai_automatic_reload_enabled=True,
+            ai_start_day="2026-12-01",
+            subscription_past_due_since="2026-11-03T14:22:05Z",
+        )
 
         usage = self._apply()
 
         assert usage["ai_low_balance_threshold_usd"] == "5.00"
         assert usage["ai_automatic_reload_enabled"] is True
         assert usage["ai_start_day"] == "2026-12-01"
+        assert usage["subscription_past_due_since"] == "2026-11-03T14:22:05Z"
 
     def test_a_null_setting_clears_it(self):
-        self._apply(ai_low_balance_threshold_usd="5.00", ai_start_day="2026-12-01")
+        self._apply(
+            ai_low_balance_threshold_usd="5.00",
+            ai_start_day="2026-12-01",
+            subscription_past_due_since="2026-11-03T14:22:05Z",
+        )
 
-        usage = self._apply(ai_low_balance_threshold_usd=None, ai_start_day=None)
+        usage = self._apply(ai_low_balance_threshold_usd=None, ai_start_day=None, subscription_past_due_since=None)
 
         assert "ai_low_balance_threshold_usd" not in usage
         assert "ai_start_day" not in usage
+        assert "subscription_past_due_since" not in usage
 
     def test_an_organization_without_settings_gains_no_keys(self):
         usage = self._apply(

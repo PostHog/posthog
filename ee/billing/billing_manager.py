@@ -147,7 +147,12 @@ AI_AUTOMATIC_RELOAD_KEY: Literal["ai_automatic_reload_enabled"] = "ai_automatic_
 AI_DAY_KEYS: tuple[Literal["ai_start_day", "ai_end_day"], ...] = ("ai_start_day", "ai_end_day")
 
 
-def _ai_day(organization: Organization, data: Mapping[str, object], key: str) -> str | None:
+SUBSCRIPTION_PAST_DUE_KEY: Literal["subscription_past_due_since"] = "subscription_past_due_since"
+
+
+def _billing_status_text(organization: Organization, data: Mapping[str, object], key: str) -> str | None:
+    """A text value from billing's status. A status without the key keeps the known value, and a null clears it.
+    PostHog stores the text as billing sent it, so billing sends each time in one form on every path."""
     if key not in data:
         return (organization.usage or {}).get(key)
     value = data[key]
@@ -899,8 +904,10 @@ class BillingManager:
                 if (setting := _ai_credit_setting(organization, data, setting_key)) is not None:
                     usage_info[setting_key] = setting
             for day_key in AI_DAY_KEYS:
-                if (day := _ai_day(organization, data, day_key)) is not None:
+                if (day := _billing_status_text(organization, data, day_key)) is not None:
                     usage_info[day_key] = day
+            if (past_due_since := _billing_status_text(organization, data, SUBSCRIPTION_PAST_DUE_KEY)) is not None:
+                usage_info[SUBSCRIPTION_PAST_DUE_KEY] = past_due_since
             if _ai_automatic_reload_enabled(organization, data):
                 usage_info[AI_AUTOMATIC_RELOAD_KEY] = True
 

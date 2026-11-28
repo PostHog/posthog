@@ -32,6 +32,7 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "ai_low_balance_threshold_usd": "5.50",
             "ai_automatic_reload_enabled": True,
             "ai_start_day": "2026-12-01",
+            "subscription_past_due_since": "2026-11-03T14:22:05Z",
         }
         self.organization.customer_trust_scores = {"ai_credits": 10}
         self.organization.save()
@@ -48,6 +49,7 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "customer_trust_scores": {"ai_credits": 10},
             "ai_start_day": "2026-12-01",
             "ai_end_day": None,
+            "subscription_past_due_since": "2026-11-03T14:22:05Z",
         }
 
     def test_the_entry_carries_the_organization_and_its_settings(self):
@@ -76,6 +78,7 @@ class TestLLMGatewayOrgEntry(BaseTest):
             "customer_trust_scores": {},
             "ai_start_day": None,
             "ai_end_day": None,
+            "subscription_past_due_since": None,
         }
 
     def test_an_organization_update_rewrites_every_team(self):

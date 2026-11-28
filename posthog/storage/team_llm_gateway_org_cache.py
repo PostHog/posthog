@@ -14,7 +14,8 @@ Shape:
             "ai_automatic_reload_enabled": true | false,
             "customer_trust_scores": {"ai_credits": 10},
             "ai_start_day": "2026-12-01" | null,
-            "ai_end_day": "2027-01-01" | null
+            "ai_end_day": "2027-01-01" | null,
+            "subscription_past_due_since": "2026-11-03T00:00:00Z" | null
         }
 
 `version` is the entry's schema. The entry isn't signed. Every team of an organization carries the same
@@ -36,6 +37,10 @@ The gateway decides the AI usage of the calls it admits from 00:00 UTC on `ai_st
 `ai_end_day`. Each debit records the entry's `settings_computed_at`. At the threshold the gateway posts a signed
 reload request to PostHog's reload route, and PostHog passes it to billing. Billing's signed
 `ai_reload_outcome` comes back on its queue, and PostHog relays it to the gateway.
+
+`subscription_past_due_since` is when billing first saw the organization's subscription past due or unpaid in
+Stripe, as an ISO 8601 UTC time. It is null while the subscription is current. The gateway decides what a past-due
+subscription means for the calls it admits.
 """
 
 import os
@@ -87,6 +92,7 @@ def llm_gateway_org_values(organization: Organization) -> dict[str, Any]:
         "customer_trust_scores": organization.customer_trust_scores or {},
         "ai_start_day": usage.get("ai_start_day"),
         "ai_end_day": usage.get("ai_end_day"),
+        "subscription_past_due_since": usage.get("subscription_past_due_since"),
     }
 
 
