@@ -179,7 +179,9 @@ async def create_salesforce_enrichment_schedule(client: Client):
     )
 
     if await a_schedule_exists(client, "salesforce-enrichment-schedule"):
-        await a_update_schedule(client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule)
+        await a_update_schedule(
+            client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, keep_paused=True
+        )
     else:
         await a_create_schedule(
             client, "salesforce-enrichment-schedule", salesforce_enrichment_schedule, trigger_immediately=False
