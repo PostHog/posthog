@@ -42,8 +42,7 @@ const OWNERS_PRODUCER = 'mcp_tool_health'
 
 // The inbox the team reports go to, and a personal API key with inbox:write, project:read,
 // organization:read and organization_member:read, limited to the organization since roles and
-// members are organization endpoints. The
-// key's owner files every report, so they need the inbox-reports-create-mcp flag.
+// members are organization endpoints. The key's owner files every report.
 const SIGNALS_PROJECT_ID = process.env.SIGNALS_PROJECT_ID || ''
 const SIGNALS_API_KEY = process.env.SIGNALS_API_KEY || ''
 // owners.yaml names GitHub teams, and the organization's roles mostly carry the same names
