@@ -30,8 +30,9 @@ from products.signals.backend.scout_harness.lazy_seed import (
     sync_canonical_skills,
 )
 from products.signals.backend.scout_harness.prompt import (
-    DREAM_CANDIDATE_KEY_PREFIX,
     DREAM_DIGEST_KEY_PREFIX,
+    DREAM_EVIDENCE_KEY_PREFIX,
+    DREAM_LEGACY_CANDIDATE_KEY_PREFIX,
     LEARNED_KEY_KINDS,
     LEARNED_KEY_PREFIX,
     MEMORY_UPKEEP_SCOUT,
@@ -837,20 +838,19 @@ class TestShippedStructuredOutputSchemas:
             "dream_entry_age_days": 41.5,
             "dream_evidence": "alert is deleted, read with alert-get",
         }
-        candidate = {
+        evidence = {
             **retire,
             "dream_action": "write_candidate",
-            "dream_key": f"{DREAM_CANDIDATE_KEY_PREFIX}area:checkout",
+            "dream_key": f"{DREAM_EVIDENCE_KEY_PREFIX}area:checkout",
             "dream_reason": "verdict_placed",
             "dream_content_chars_before": None,
             "dream_entry_age_days": None,
             "dream_evidence": "report 01a2-example dismissed",
         }
-        promotion = {**candidate, "dream_action": "promote_candidate", "dream_reason": "repeated_feedback"}
         _validate_records(
             [
                 StructuredOutputRecord(payload=payload, subject="signals-scout-example")
-                for payload in (retire, candidate, promotion)
+                for payload in (retire, evidence)
             ],
             schema,
         )
@@ -872,7 +872,10 @@ class TestShippedMemoryUpkeepScout:
         assert skill.source_path.name == MEMORY_UPKEEP_SCOUT
         assert named_kinds == set(LEARNED_KEY_KINDS)
         assert f"`{DREAM_DIGEST_KEY_PREFIX}<skill-name>`" in skill.body
-        assert f"`{DREAM_CANDIDATE_KEY_PREFIX}<kind>:<subject>`" in skill.body
+        assert f"`{DREAM_EVIDENCE_KEY_PREFIX}<kind>:<subject>`" in skill.body
+        # The run prompt tells readers to treat keys under the old prefix as evidence keys, which holds
+        # only while the skill still moves them to the new prefix.
+        assert f"`{DREAM_LEGACY_CANDIDATE_KEY_PREFIX}<kind>:<subject>`" in skill.body
         assert not skill_uses_report_channel(list(skill.allowed_tools))
 
 
