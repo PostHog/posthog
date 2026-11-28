@@ -1285,6 +1285,9 @@ class TestWorkflowImportAPI(APIBaseTest):
         assert [item["status"] for item in response["segment_cohorts"]] == ["not_converted"]
         assert reason in response["segment_cohorts"][0]["reason"]
         assert self._imported_cohorts() == []
+        can_start_on_cohort = case.get("realtime", True) and cohort_triggers
+        advice = "Create a realtime cohort with these" if can_start_on_cohort else "pick an event that starts it"
+        assert any(advice in note["message"] for note in response["results"][0]["notes"])
         trigger_result = response["results"][0]
         assert trigger_result["status"] == "created", trigger_result["validation_errors"]
         assert any(reason in note["message"] for note in trigger_result["notes"])

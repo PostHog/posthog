@@ -62,6 +62,7 @@ _SANS_SERIF = "font-family: Arial, Helvetica, sans-serif;"
 # send to, so nobody passes until someone replaces it.
 _NOBODY: dict[str, Any] = {"key": "false", "type": "hogql", "value": None}
 _AUDIENCE_ID = "cio_audience"
+SEGMENT_TRIGGER_TYPES = ("seg_attr", "behavioral")
 STATIC_SEGMENT_TYPES = frozenset({"static", "manual"})
 _SEGMENT_IDS = re.compile(r"\b(segments?) (\d+(?:, \d+)*)\b")
 _CHANNEL_NAMES = {
@@ -212,7 +213,7 @@ class _Builder:
                 event["properties"] = properties
             trigger: dict[str, Any] = {"type": "event", "filters": {"events": [event]}}
             return trigger
-        if kind in ("seg_attr", "behavioral"):
+        if kind in SEGMENT_TRIGGER_TYPES:
             return self._segment_trigger()
         labels = {
             "date": "a date attribute",
@@ -248,8 +249,13 @@ class _Builder:
         what = "; ".join(described) or "a segment"
         self.note(
             NoteLevel.NEEDS_INPUT,
-            f"Customer.io starts this automation when a person matches: {what}. Create a realtime cohort with "
-            "these conditions and start the workflow when a person joins it.",
+            f"Customer.io starts this automation when a person matches: {what}. "
+            + (
+                "Create a realtime cohort with these conditions and start the workflow when a person joins it."
+                if self.options.cohort_triggers_available
+                else "Starting a workflow when a person joins a cohort isn't available here yet, so pick an event that "
+                "starts it."
+            ),
         )
         return _empty_trigger()
 
