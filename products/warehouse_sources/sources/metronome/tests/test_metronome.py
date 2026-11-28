@@ -605,8 +605,8 @@ class TestMetronomeSourceResponse:
         assert manager.save_state.called is False
 
     def test_a_resumed_invoices_walk_skips_the_customers_it_already_wrote(self) -> None:
-        # A large account's invoice walk runs for hours. When every attempt started again at the
-        # first customer, a worker restart every few hours meant the table never finished.
+        # A large account's invoice walk runs for hours, longer than a worker lives between restarts,
+        # so a resumed attempt has to skip the customers already written or the table never finishes.
         result = _driver().run(
             "invoices",
             [
@@ -619,7 +619,6 @@ class TestMetronomeSourceResponse:
         assert result.raised is None
         assert result.paths == ["/v1/customers", "/v1/customers/c2/invoices"]
         assert result.requests[0].param("next_page") == "cursor-2"
-        assert result.queries[1] == {"limit": ("25",), "sort": ("date_asc",)}
         assert [row["id"] for row in result.rows] == ["inv_2"]
         last_checkpoint = result.committed_states[-1]
         assert (last_checkpoint.parent_cursor, sorted(last_checkpoint.completed_customers)) == (

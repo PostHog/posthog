@@ -103,10 +103,7 @@ class BodyFanoutConfig:
     skip_parents_with: str | None = None
 
 
-# frozen=False: MetronomeEndpointConfig is passed as `endpoint_configs: Mapping[str, FanoutEndpointLike]`,
-# and mypy treats a frozen dataclass's fields as read-only, which is incompatible with that
-# Protocol's plain (read-write) attributes.
-@dataclass(frozen=False)
+@dataclass(frozen=True)
 class MetronomeEndpointConfig:
     name: str
     path: str
