@@ -301,14 +301,21 @@ export const sesFeedbackPosts: MeasurementDefinition = {
 
 const SES_NOTIFICATION_STAGES = ['queued', 'recorded', 'skipped', 'failed'] as const
 
-const QUEUEING_AND_RECORDING_ROLES: readonly string[] = ['cdp-api', 'cdp-ses-webhooks']
+const RECORDING_ROLE = 'cdp-ses-webhooks'
+
+const QUEUEING_AND_RECORDING_ROLES: readonly string[] = ['cdp-api', RECORDING_ROLE]
 
 const feedbackAnswersOf = ({ truth }: MeasureEvidence): { status: number; answeredAt: number; seq: number }[] =>
     truth
         .filter(({ kind, detail }) => kind === 'ses.feedback' && detail.feedback !== undefined)
         .map(({ status, at, seq }) => ({ status, answeredAt: Date.parse(at), seq }))
 
-const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): string | undefined => {
+const lossUnknown = (
+    evidence: MeasureEvidence,
+    failed: number,
+    lost: number,
+    consumerUncounted: boolean
+): string | undefined => {
     const { converged, unread, unsettled, horizonAt, horizonSeq } = evidence
     const answers = feedbackAnswersOf(evidence)
     return converged === false
@@ -325,11 +332,13 @@ const lossUnknown = (evidence: MeasureEvidence, failed: number, lost: number): s
                           (horizonSeq !== undefined && seq > horizonSeq)
                   )
                 ? 'an SES feedback post was answered after the run converged, so the consumer may not have recorded it when the counters were read'
-                : failed > 0
-                  ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
-                  : lost < 0
-                    ? 'recorded and skipped add up to more than queued; the counters do not show why'
-                    : undefined
+                : consumerUncounted
+                  ? 'a cdp-ses-webhooks replica restarted, missed its last scrape or was never scraped, so the consumer may have recorded notifications its counters do not show'
+                  : failed > 0
+                    ? `the consumer failed ${failed} notifications and replayed their batches, so recorded may count some twice`
+                    : lost < 0
+                      ? 'recorded and skipped add up to more than queued; the counters do not show why'
+                      : undefined
 }
 
 export const sesNotificationsLost: MeasurementDefinition = {
@@ -341,15 +350,13 @@ export const sesNotificationsLost: MeasurementDefinition = {
         const replicas = [...byRole(samples).values()]
             .flatMap(replicasOf)
             .filter((ofReplica) => QUEUEING_AND_RECORDING_ROLES.includes(ofReplica[0].role))
-        const neverScraped = missed.some(
-            (miss) =>
-                QUEUEING_AND_RECORDING_ROLES.includes(miss.role) &&
-                !replicas.some((ofReplica) => ofReplica[0].role === miss.role && ofReplica[0].replica === miss.replica)
-        )
-        const incomplete =
-            neverScraped || replicas.some((ofReplica) => lostCpu(ofReplica, missed))
-                ? { incomplete: true as const }
-                : {}
+        const uncounted = (role: string): boolean =>
+            missed.some(
+                (miss) =>
+                    miss.role === role &&
+                    !replicas.some((ofReplica) => ofReplica[0].role === role && ofReplica[0].replica === miss.replica)
+            ) || replicas.some((ofReplica) => ofReplica[0].role === role && lostCpu(ofReplica, missed))
+        const incomplete = QUEUEING_AND_RECORDING_ROLES.some(uncounted) ? { incomplete: true as const } : {}
         if (
             !replicas.some((ofReplica) =>
                 ofReplica.some(({ sesNotifications }) => Object.keys(sesNotifications).length > 0)
@@ -362,7 +369,7 @@ export const sesNotificationsLost: MeasurementDefinition = {
                           value: null,
                           censored: true,
                           unmeasured:
-                              'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
+                              'no replica counted an SES notification, but a replica restarted or missed a scrape, so the counters may hold some',
                           ...incomplete,
                       },
                   ]
@@ -372,7 +379,7 @@ export const sesNotificationsLost: MeasurementDefinition = {
             increaseAcrossReplicas(replicas, ({ sesNotifications }) => sesNotifications[stage] ?? 0, sampledFrom)
         )
         const lost = queued - recorded - skipped
-        const unknown = lossUnknown(evidence, failed, lost)
+        const unknown = lossUnknown(evidence, failed, lost, uncounted(RECORDING_ROLE))
         return [
             {
                 key: 'lost_floor',

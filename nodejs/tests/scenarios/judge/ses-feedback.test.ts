@@ -297,6 +297,50 @@ describe('SES notifications lost', () => {
         expect(measured.filter(({ incomplete }) => incomplete !== true)).toEqual([])
     })
 
+    it.each<[string, MetricSample[], MissedScrape[]]>([
+        [
+            'the consumer recorded after its last scrape and missed its final one',
+            run,
+            [{ role: 'cdp-ses-webhooks', replica: 0, at: FROM + 90_000 }],
+        ],
+        ['a consumer replica restarted', [...run, scraped('cdp-ses-webhooks', 90, { recorded: 1 }, 80)], []],
+        ['a consumer replica was never scraped', run, [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }]],
+        [
+            'a consumer replica that had counted nothing yet missed its last scrape',
+            [...run, scraped('cdp-ses-webhooks', 0, {}, -60, 1)],
+            [{ role: 'cdp-ses-webhooks', replica: 1, at: FROM + 90_000 }],
+        ],
+    ])('leaves the loss unknown when %s', (_story, samples, missed) => {
+        expect(lostOf(samples, { missed }).find(({ key }) => key === 'lost_floor')).toEqual({
+            name: 'ses_notifications_lost',
+            unit: 'notifications',
+            key: 'lost_floor',
+            value: null,
+            censored: true,
+            unmeasured:
+                'a cdp-ses-webhooks replica restarted, missed its last scrape or was never scraped, so the consumer may have recorded notifications its counters do not show',
+            incomplete: true,
+        })
+    })
+
+    it.each<[string, MissedScrape[], object]>([
+        [
+            'only cdp-api missed its last scrape, since a missing queued count only lowers it',
+            [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }],
+            { value: 3, incomplete: true },
+        ],
+        [
+            'the consumer missed a scrape and the next one landed',
+            [{ role: 'cdp-ses-webhooks', replica: 0, at: FROM + 30_000 }],
+            { value: 3 },
+        ],
+    ])('keeps the floor when %s', (_story, missed, floor) => {
+        const lostFloor = lostOf(run, { missed }).find(({ key }) => key === 'lost_floor')
+
+        expect(lostFloor).toMatchObject(floor)
+        expect(lostFloor?.incomplete).toBe('incomplete' in floor ? true : undefined)
+    })
+
     it.each<[string, MetricSample[], string]>([
         [
             'the consumer failed notifications, so their batches replayed',
@@ -382,22 +426,32 @@ describe('SES notifications lost', () => {
         expect(lostOf([scraped('cdp-api', 0, {}), scraped('cdp-api', 60, {})])).toEqual([])
     })
 
-    it('marks the loss unknown and incomplete when no replica counted a notification and a scrape was missed', () => {
-        expect(
-            lostOf([scraped('cdp-api', 0, {}), scraped('cdp-api', 60, {})], {
-                missed: [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }],
-            })
-        ).toEqual([
-            {
-                name: 'ses_notifications_lost',
-                unit: 'notifications',
-                key: 'lost_floor',
-                value: null,
-                censored: true,
-                unmeasured:
-                    'no replica counted an SES notification, but a scrape was missed, so the counters may hold some',
-                incomplete: true,
-            },
-        ])
-    })
+    it.each<[string, MetricSample[], MissedScrape[]]>([
+        [
+            'a scrape was missed',
+            [scraped('cdp-api', 0, {}), scraped('cdp-api', 60, {})],
+            [{ role: 'cdp-api', replica: 0, at: FROM + 90_000 }],
+        ],
+        [
+            'a replica restarted between two scrapes',
+            [scraped('cdp-ses-webhooks', 0, {}), scraped('cdp-ses-webhooks', 60, {}, 30)],
+            [],
+        ],
+    ])(
+        'marks the loss unknown and incomplete when no replica counted a notification and %s',
+        (_story, samples, missed) => {
+            expect(lostOf(samples, { missed })).toEqual([
+                {
+                    name: 'ses_notifications_lost',
+                    unit: 'notifications',
+                    key: 'lost_floor',
+                    value: null,
+                    censored: true,
+                    unmeasured:
+                        'no replica counted an SES notification, but a replica restarted or missed a scrape, so the counters may hold some',
+                    incomplete: true,
+                },
+            ])
+        }
+    )
 })
