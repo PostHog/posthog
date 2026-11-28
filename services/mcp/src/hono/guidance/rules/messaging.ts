@@ -5,8 +5,11 @@ import type { GuidanceRule } from '../rule-schema'
 
 const LEAF_TYPES_A_BATCH_AUDIENCE_REJECTS = new Set(['behavioral', 'cohort'])
 
-function isStaticCohort(args: Record<string, unknown> | undefined): boolean {
-    return Object.entries(args ?? {}).some(
+function isStaticCohort(args: Record<string, unknown>): boolean {
+    if ('is_static' in args) {
+        return args.is_static === true
+    }
+    return Object.entries(args).some(
         ([key, value]) => key.replace(/[_-]/g, '').toLowerCase() === 'isstatic' && value === true
     )
 }
@@ -24,9 +27,12 @@ function hasLeafABatchAudienceRejects(node: unknown): boolean {
         : typeof type === 'string' && LEAF_TYPES_A_BATCH_AUDIENCE_REJECTS.has(type)
 }
 
-function batchAudienceAccepts(call: GuidanceCall): boolean {
-    const filters = call.args?.filters as { properties?: unknown } | undefined
-    return isStaticCohort(call.args) || !hasLeafABatchAudienceRejects(filters?.properties)
+function batchAudienceAccepts({ args }: GuidanceCall): boolean {
+    if (!args) {
+        return false
+    }
+    const filters = args.filters as { properties?: unknown } | undefined
+    return isStaticCohort(args) || !hasLeafABatchAudienceRejects(filters?.properties)
 }
 
 const rules: GuidanceRule[] = [

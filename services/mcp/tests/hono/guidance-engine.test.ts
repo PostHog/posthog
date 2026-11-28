@@ -587,6 +587,19 @@ describe('GuidanceEngine', () => {
                     },
                 },
             ],
+            [
+                'a dynamic cohort whose canonical static flag is false',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                {
+                    ...cohortsCreate,
+                    args: { name: 'Active', is_static: false, isStatic: true, filters: behavioralFilters },
+                },
+            ],
+            [
+                'a call whose arguments did not parse',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: undefined },
+            ],
         ])('stays silent and reports no exposure for %s', async (_label, tools, call) => {
             const state = messagingState('after_cohorts_create', { allTools: tools as ResolvedState['allTools'] })
             await expect(
