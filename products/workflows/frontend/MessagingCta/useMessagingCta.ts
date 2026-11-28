@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { FEATURE_FLAGS, FeatureFlagKey } from 'lib/constants'
 import {
@@ -8,6 +8,7 @@ import {
     peekFeatureFlag,
     reportFeatureFlagExposure,
 } from 'lib/logic/featureFlagLogic'
+import { uuid } from 'lib/utils/dom'
 
 import {
     MessagingCtaCopy,
@@ -36,6 +37,7 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
     const { featureFlags, receivedFeatureFlags } = useValues(featureFlagLogic)
     const { isDismissed } = useValues(messagingCtaDismissalLogic({ viewerId, placement: key }))
     const { dismiss } = useActions(messagingCtaDismissalLogic({ viewerId, placement: key }))
+    const [attemptId] = useState(uuid)
 
     const placement = placementFor(key)
     const flag = areaFlag(placement.area) as FeatureFlagKey
@@ -59,7 +61,7 @@ export function useMessagingCta(key: MessagingPlacementKey, viewerId: string): M
         placement: state.placement,
         copy: state.copy,
         onClick: () => {
-            captureMessageAudienceClicked(key, state.placement.destination)
+            captureMessageAudienceClicked(key, state.placement.destination, attemptId)
         },
         onDismiss: dismiss,
     }
