@@ -13,6 +13,9 @@ from django.test import override_settings
 
 from clickhouse_driver import Client
 from clickhouse_driver.errors import ServerException, SocketTimeoutError
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 from parameterized import parameterized
 from redis.exceptions import LockNotOwnedError
 
@@ -483,7 +486,14 @@ def test_deletion_applies_team_limits_to_every_query(config: bool, team_timeout:
 
 
 @pytest.mark.parametrize(
-    "stage", ["read_erasure_targets", "delete_membership", "verify_membership_erasure", "verify_team_empty"]
+    "stage",
+    [
+        "read_erasure_targets",
+        "delete_membership",
+        "verify_membership_erasure",
+        "verify_config_erasure",
+        "verify_team_empty",
+    ],
 )
 def test_query_failures_do_not_expose_membership_identifiers(stage: str, caplog: pytest.LogCaptureFixture) -> None:
     identifier = "private-membership-identifier"
@@ -507,19 +517,36 @@ def test_query_failures_do_not_expose_membership_identifiers(stage: str, caplog:
 
     placement.cluster.map_one_host_per_shard.side_effect = dispatch
     store = MembershipDeletionStore()
+    verification_client = MagicMock()
+    verification_client.last_query = None
+    verification_client.execute.side_effect = error
+    exporter = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(exporter))
     with (
         patch("products.customer_analytics.backend.logic.membership_deletion._get_cleanup_cluster"),
         patch("products.customer_analytics.backend.logic.membership_deletion.placement_for", return_value=placement),
-        patch("products.customer_analytics.backend.logic.membership_deletion.sync_execute", side_effect=error),
+        patch("posthog.test.base.flush_persons_and_events"),
+        patch("posthog.clickhouse.client.execute.get_client_from_pool") as pool,
+        patch("posthog.clickhouse.client.tracing.trace.get_tracer", return_value=provider.get_tracer(__name__)),
         pytest.raises(RuntimeError) as raised,
     ):
+        pool.return_value.__enter__.return_value = verification_client
         if stage == "verify_team_empty":
             store.has_membership(1)
+        elif stage == "verify_config_erasure":
+            store.delete_config(1)
         else:
             store.delete_keys(1, [MembershipKey(group_type_index=0, group_key=identifier, distinct_id=identifier)])
     assert identifier not in "".join(traceback.format_exception(raised.value))
     assert identifier not in caplog.text
     assert store.timings.failed_step == stage
+    spans = exporter.get_finished_spans()
+    if stage.startswith("verify_"):
+        assert spans
+        assert any(span.events for span in spans)
+    assert all(identifier not in span.to_json() for span in spans)
+    provider.shutdown()
 
 
 @override_settings(CLICKHOUSE_CLUSTER="posthog", CLICKHOUSE_AUX_CLUSTER="auxiliary")
