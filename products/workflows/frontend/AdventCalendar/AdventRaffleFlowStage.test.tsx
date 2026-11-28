@@ -5,6 +5,7 @@ import posthog from 'posthog-js'
 import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
+import { Mocks } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 import { UserType } from '~/types'
 
@@ -19,33 +20,31 @@ const DESKTOP = { width: 1200, height: 830 }
 const PHONE = { width: 375, height: 700 }
 const ANSWERS = Object.fromEntries(ADVENT_QUESTION_DAYS.map((day) => [day, ADVENT_QUESTIONS[day].options[0].id]))
 
+function calendarMocks(tickets: number[]): Mocks {
+    return {
+        get: {
+            '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [], ticket_days: tickets },
+        },
+        post: {
+            '/api/projects/:team_id/workflow_advent_calendar/open/': async ({ request }) => {
+                const { day } = (await request.json()) as { day: number }
+                return [200, { day, opened_at: new Date().toISOString(), ticket_days: [...tickets, day] }]
+            },
+        },
+    }
+}
+
 describe('AdventRaffleFlowStage', () => {
     let capture: jest.SpyInstance
     let measure: jest.SpyInstance
     let stage: RenderResult | null
 
-    async function renderOn(
-        now: Date,
-        opened: number[],
-        tickets: number[],
-        size: { width: number; height: number }
-    ): Promise<void> {
+    async function renderOn(now: Date, opened: number[], size: { width: number; height: number }): Promise<void> {
         jest.useFakeTimers({ now, advanceTimers: true })
         window.localStorage.setItem(
             'workflows-advent-calendar-progress',
             JSON.stringify({ [UUID]: { opened, answers: ANSWERS } })
         )
-        useMocks({
-            get: {
-                '/api/projects/:team_id/workflow_advent_calendar/results/': { questions: [], ticket_days: tickets },
-            },
-            post: {
-                '/api/projects/:team_id/workflow_advent_calendar/open/': async ({ request }) => {
-                    const { day } = (await request.json()) as { day: number }
-                    return [200, { day, opened_at: new Date().toISOString(), ticket_days: [...tickets, day] }]
-                },
-            },
-        })
         initKeaTests()
         await expectLogic(userLogic).toFinishAllListeners()
         userLogic.actions.loadUserSuccess({ ...userLogic.values.user, uuid: UUID } as UserType)
@@ -86,7 +85,8 @@ describe('AdventRaffleFlowStage', () => {
     })
 
     it('draws the gold trail only into doors opened on their day', async () => {
-        await renderOn(new Date(2026, 11, 6, 9, 0), [1, 2, 3, 4, 5], [1, 3, 4], DESKTOP)
+        useMocks(calendarMocks([1, 3, 4]))
+        await renderOn(new Date(2026, 11, 6, 9, 0), [1, 2, 3, 4, 5], DESKTOP)
 
         expect(
             Array.from(document.querySelectorAll('[data-emphasized="true"]')).map(
@@ -97,7 +97,7 @@ describe('AdventRaffleFlowStage', () => {
 
     it('scrolls the phone column past the last door to the exit once the draw date has passed', async () => {
         const scrollOn = async (now: Date): Promise<number> => {
-            await renderOn(now, DAYS.slice(0, 23), [], PHONE)
+            await renderOn(now, DAYS.slice(0, 23), PHONE)
             const scrollTop = track()?.scrollTop ?? 0
             stage?.unmount()
             stage = null
@@ -106,6 +106,7 @@ describe('AdventRaffleFlowStage', () => {
             return scrollTop
         }
 
+        useMocks(calendarMocks([]))
         const onTheLastDay = await scrollOn(new Date(2026, 11, 24, 9, 0))
         const afterTheDraw = await scrollOn(new Date(2026, 11, 26, 9, 0))
 
@@ -113,7 +114,8 @@ describe('AdventRaffleFlowStage', () => {
     })
 
     it('opens the card on the present once its opening has played', async () => {
-        await renderOn(new Date(2026, 11, 24, 9, 0), DAYS.slice(0, 23), [], DESKTOP)
+        useMocks(calendarMocks([]))
+        await renderOn(new Date(2026, 11, 24, 9, 0), DAYS.slice(0, 23), DESKTOP)
 
         act(() => fireEvent.click(door(24)))
         await advance(ADVENT_FLOW_OPENING_MS - 100)
@@ -124,7 +126,8 @@ describe('AdventRaffleFlowStage', () => {
     })
 
     it('holds the ticket flight while the door card covers the phone column', async () => {
-        await renderOn(new Date(2026, 11, 3, 9, 0), [1, 2], [1], PHONE)
+        useMocks(calendarMocks([1]))
+        await renderOn(new Date(2026, 11, 3, 9, 0), [1, 2], PHONE)
 
         act(() => fireEvent.click(door(3)))
         await advance(ADVENT_FLOW_OPENING_MS, 200, 100)
