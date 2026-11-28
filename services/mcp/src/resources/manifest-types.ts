@@ -27,11 +27,6 @@ export interface PromptResource {
     name: string
     title: string
     description: string
-    arguments?: Array<{
-        name: string
-        description: string
-        required: boolean
-    }>
     messages: Array<{
         role: string
         content: {

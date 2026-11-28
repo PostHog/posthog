@@ -10,8 +10,6 @@ import type {
 } from '@modelcontextprotocol/sdk/types.js'
 
 import { getPromptsFromManifest } from '@/resources'
-import type { PromptResource } from '@/resources/manifest-types'
-import { appendPromptArguments } from '@/resources/ready-prompts'
 import { buildAppStubHtml, buildUiAppResourceMeta } from '@/resources/ui-apps'
 import { UI_APPS } from '@/resources/ui-apps.generated'
 import type { Env } from '@/tools/types'
@@ -46,7 +44,7 @@ export class ResourceCatalog {
 
     private resources: Resource[] = []
     private prompts: Prompt[] = []
-    private promptsByName = new Map<string, PromptResource>()
+    private promptsByName = new Map<string, GetPromptResult>()
     private uiAppResources: Resource[] = []
     private uiAppReadEntries = new Map<string, TextResourceContents>()
     private allResources: Resource[] = []
@@ -143,19 +141,7 @@ export class ResourceCatalog {
         if (!entry) {
             return { messages: [] }
         }
-        const args = params?.arguments as Record<string, unknown> | undefined
-        const messages = entry.messages.map((message, index) =>
-            index === entry.messages.length - 1 && message.content.type === 'text'
-                ? {
-                      ...message,
-                      content: {
-                          ...message.content,
-                          text: appendPromptArguments(message.content.text, entry.arguments, args),
-                      },
-                  }
-                : message
-        )
-        return { messages: messages as GetPromptResult['messages'] }
+        return { messages: entry.messages }
     }
 
     private async refreshContextMill(): Promise<ContextMillCacheResult> {
@@ -194,9 +180,8 @@ export class ResourceCatalog {
                     name: prompt.name,
                     title: prompt.title,
                     description: prompt.description,
-                    ...(prompt.arguments ? { arguments: prompt.arguments } : {}),
                 })
-                this.promptsByName.set(prompt.name, prompt)
+                this.promptsByName.set(prompt.name, { messages: prompt.messages as GetPromptResult['messages'] })
             }
         } catch (error) {
             console.error('[ResourceCatalog] Failed to pre-load prompts:', error)

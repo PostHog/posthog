@@ -11,8 +11,8 @@ from posthog.models.utils import uuid7
 
 from products.tasks.backend.facade.agents import CustomPromptSandboxContext
 from products.web_analytics.backend.hogql_queries.web_vitals_path_breakdown import WebVitalsPathBreakdownQueryRunner
-from products.web_analytics.evals.eval_mcp_web_questions import CASES, READY_PROMPT_SEEDERS, READY_PROMPTS_WITHOUT_CASES
-from products.web_analytics.evals.ready_prompts import load_ready_prompts
+from products.web_analytics.evals.eval_mcp_web_questions import CASES, READY_PROMPT_SEEDERS
+from products.web_analytics.evals.ready_prompts import READY_PROMPTS
 from products.web_analytics.evals.seeders import (
     WEB_VITALS_TRAP_PATH,
     seed_ai_agent_traffic,
@@ -139,10 +139,10 @@ class TestWebAnalyticsEvalSeeders(ClickhouseTestMixin, APIBaseTest):
 
 
 class TestReadyPromptEvalCases(SimpleTestCase):
-    def test_every_ready_prompt_has_an_eval_case_or_a_reason_it_has_none(self) -> None:
-        prompts = {prompt.name: prompt for prompt in load_ready_prompts()}
-        assert set(READY_PROMPT_SEEDERS) | set(READY_PROMPTS_WITHOUT_CASES) == set(prompts)
-        assert not set(READY_PROMPT_SEEDERS) & set(READY_PROMPTS_WITHOUT_CASES)
+    def test_every_ready_prompt_is_asked_word_for_word_with_an_oracle(self) -> None:
+        prompts = {prompt.name: prompt for prompt in READY_PROMPTS}
+        assert len(prompts) == len(READY_PROMPTS)
+        assert set(READY_PROMPT_SEEDERS) == set(prompts)
 
         ready_cases = {case.metadata["ready_prompt"]: case for case in CASES if "ready_prompt" in case.metadata}
         assert set(ready_cases) == set(READY_PROMPT_SEEDERS)

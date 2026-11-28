@@ -4,8 +4,8 @@ Each case asks one question in natural language and is scored two ways: the rout
 agent reached for the typed web analytics tool the question calls for, and the answer judge compares the
 final message with an oracle the case seeder computes from the seeded project right before the agent runs.
 
-The ``ready_*`` cases ask the ready-made prompts the MCP serves (products/web_analytics/mcp/ready_prompts), word
-for word, so a prompt that stops working end to end shows up here.
+The ``ready_*`` cases ask the ready-made questions in ``ready_prompts.py`` word for word, so a question that stops
+working end to end shows up here.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.evals.cli_mcp.scorers import FirstRelevantTool
 from products.web_analytics.evals.offline_config import offline_suite
-from products.web_analytics.evals.ready_prompts import load_ready_prompts, render_ready_prompt
+from products.web_analytics.evals.ready_prompts import READY_PROMPTS, render_ready_prompt
 from products.web_analytics.evals.scorers import WebAnswerCorrectness
 from products.web_analytics.evals.seeders import (
     MIN_LANDING_PAGE_VISITORS,
@@ -63,7 +63,7 @@ def _case(name: str, prompt: str, tool: str, setup: Seeder, **metadata: str) -> 
     )
 
 
-# The seeder whose oracle answers each ready-made prompt, and the arguments the case passes to it.
+# The seeder whose oracle answers each ready-made question, and the arguments the case passes to it.
 READY_PROMPT_SEEDERS: dict[str, tuple[Seeder, dict[str, str]]] = {
     "web-analytics-weekly-summary": (seed_weekly_digest, {}),
     "web-analytics-traffic-change": (seed_traffic_change_drivers, {}),
@@ -80,19 +80,10 @@ READY_PROMPT_SEEDERS: dict[str, tuple[Seeder, dict[str, str]]] = {
     "web-analytics-daily-visitors": (seed_daily_visitors, {}),
 }
 
-# Ready-made prompts with no eval case, and why the seeded project can't score them.
-READY_PROMPTS_WITHOUT_CASES: dict[str, str] = {
-    "web-analytics-set-up-conversion-goal": (
-        "It creates an action and asks the user which step counts, so there is no read-only oracle to compare with."
-    ),
-}
-
 
 def _ready_prompt_cases() -> list[SandboxedEvalCase]:
     cases = []
-    for prompt in load_ready_prompts():
-        if prompt.name in READY_PROMPTS_WITHOUT_CASES:
-            continue
+    for prompt in READY_PROMPTS:
         seeder, arguments = READY_PROMPT_SEEDERS[prompt.name]
         cases.append(
             _case(
