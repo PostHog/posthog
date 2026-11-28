@@ -219,6 +219,7 @@ WIZARD_DEFAULT_PROGRAMS: tuple[str, ...] = (
     "ai-observability",
     "metrics",
     "slack",
+    "transactional-email",
 )
 
 
