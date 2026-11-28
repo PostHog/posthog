@@ -108,12 +108,13 @@ describe('AdventRaffleFlowStage', () => {
         await advance(ADVENT_FLOW_OPENING_MS - 100)
         const beforeTheEnd = screen.queryByRole('dialog')
         await advance(200, 100)
-        const card = screen.getByRole('dialog', { name: 'Heart' })
+        const card = screen.getByLabelText('Heart')
 
-        expect([beforeTheEnd, !!within(card).queryByText('Open each door on its day to enter the raffle.')]).toEqual([
-            null,
-            true,
-        ])
+        expect([
+            beforeTheEnd,
+            screen.queryByRole('dialog') === card,
+            !!within(card).queryByText('Open each door on its day to enter the raffle.'),
+        ]).toEqual([null, true, true])
     })
 
     it('holds the ticket flight while the door card covers the phone column', async () => {
@@ -122,9 +123,9 @@ describe('AdventRaffleFlowStage', () => {
 
         act(() => fireEvent.click(door(3)))
         await advance(ADVENT_FLOW_OPENING_MS, 200, 100)
-        const card = screen.getByRole('dialog', { name: 'Scientist' })
+        const card = screen.getByLabelText('Scientist')
         const isFlyingUnderTheCard = !!flight()
-        act(() => fireEvent.click(within(card).getByRole('button', { name: 'Close' })))
+        act(() => fireEvent.click(within(card).getByLabelText('Close')))
         await advance(300, 300, 100)
 
         expect([isFlyingUnderTheCard, !!flight()]).toEqual([false, true])

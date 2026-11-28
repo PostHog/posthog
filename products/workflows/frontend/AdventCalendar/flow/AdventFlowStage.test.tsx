@@ -522,7 +522,7 @@ describe('AdventFlowStage', () => {
 
         expect([
             lines.map((line) => !!screen.queryByText(line)),
-            !!screen.queryByRole('button', { name: /^Exit\s*Raffle draw$/ }),
+            screen.queryByLabelText(/^Exit\s*Raffle draw$/) instanceof HTMLButtonElement,
         ]).toEqual([lines.map(() => true), isButton])
     })
 
