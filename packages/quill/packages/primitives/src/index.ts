@@ -289,7 +289,15 @@ export {
     getPaginationRange,
     type PaginationRangeItem,
 } from './pagination'
-export { Popover, PopoverArrow, PopoverContent, PopoverTrigger } from './popover'
+export {
+    Popover,
+    PopoverArrow,
+    PopoverContent,
+    PopoverDescription,
+    PopoverHeader,
+    PopoverTitle,
+    PopoverTrigger,
+} from './popover'
 export {
     Progress,
     ProgressIndicator,

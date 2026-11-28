@@ -6,6 +6,7 @@ Quick-reference for AI agents using `@posthog/quill-components` — composed com
 
 - `Credenza`, `CredenzaTrigger`, `CredenzaContent`, `CredenzaHeader`, `CredenzaTitle`, `CredenzaDescription`, `CredenzaBody`, `CredenzaFooter`, `CredenzaClose` — a `Dialog` on a wide viewport and a bottom `Drawer` on a phone, from one set of parts
 - `DataTable` — TanStack Table wired onto quill `Table` + `Pagination`, with an opt-in `selectable` checkbox variant
+- `Infotip` — an info icon button that explains the value next to it when clicked, tapped or pressed (a toggletip built from `Popover` + `Button`)
 - `FilterMenuTrigger`, `FilterRadioSubMenu`, `FilterCheckboxSubMenu`, `FilterSearchSubMenu`, `FilterSubMenu`, `FilterClearItem`, `filterSummary` — the parts of a list's one filter menu
 - `DateTimePicker` — calendar range picker with quick-range presets (`quickRanges`, `CUSTOM_RANGE`)
 - `DatePicker` — single-date picker (one calendar, optional time, no quick ranges)
@@ -43,6 +44,27 @@ Rules:
 - When each change saves as the user makes it, there is nothing to submit or cancel. The footer then holds one `outline` button, since closing is not a main action: `<CredenzaClose render={<Button variant="outline" />}>Done</CredenzaClose>`.
 - A change of mode remounts the popup and its parts, but never a `CredenzaTrigger`: the triggers attach to the mounted root through a shared handle. Focus goes back to the trigger that opened it, and any number of triggers works with no extra props.
 - Use `Dialog` or `Drawer` directly when the surface must be the same on every viewport.
+
+## Infotip
+
+```tsx
+<CardTitle className="flex items-center gap-1">
+  Average position
+  <Infotip label="About average position">Where your site appears among the cited sources. 1 is first.</Infotip>
+</CardTitle>
+```
+
+Rules:
+
+- Explain with the layout first: a clear label, a unit, or visible helper text (`FieldDescription`, `CardDescription`). An `Infotip` is for detail most people don't need, such as how a value is calculated. A surface that needs several infotips needs a clearer layout instead.
+- When an info icon is the right call, use `Infotip`. Don't wrap an info icon in a `Tooltip`: a tooltip is hover-only, so touch users can't open it, and a click on it does nothing.
+- A click, tap, Enter or Space opens it, and it stays open until Escape, a click outside or another click on the icon. Escape returns focus to the icon. Hover does not open it: the icon exists only to show the text, so opening it is a deliberate act, as in other toggletips. A keyboard user lands in the popup, so a link inside it is reachable.
+- The button draws 16px so it fits a line of small text, even a truncated one, and an invisible layer grows its target to 24px. Don't resize it with `className`.
+- `label` is required. It names the icon button and the popup for screen readers, so name the value it explains ("About average position"), not "More info". The children are the popup's description.
+- A click or key press on the icon or the popup stops there, so it never sorts a table header, toggles a collapse or opens a clickable card.
+- Put it next to a `<label>`, not inside one, and never inside a button, tab, menu or select option. Inside a label its name joins the control's accessible name, inside another control it nests one control in another, and a menu label hides it from screen readers.
+- Keep the content short: text, an inline link, or a short list. Anything longer, or with controls, is a `Popover`.
+- `side` and `align` place the popup (top and center by default). `dataAttr` sets the icon button's `data-attr` for product analytics. `className` styles the icon button and `contentClassName` the popup.
 
 ## DataTable
 
@@ -229,7 +251,7 @@ Rules:
 - Supports `restingSubtitle`, `hoverChangeFromPreviousPoint`, `changeTooltip`, and `positiveColor`/`negativeColor` for user-configured pill colors; omit the color props to keep the semantic `Badge` variants.
 - `series` draws a multi-series sparkline (one line per series, the charts' `Series[]` shape) instead of the single `data` line. It's purely visual — the headline, hover and change pill still read `data`, so pass the numbers the tile should read (e.g. the per-index totals) as `data` alongside it; the types reject `series` without `data`. The single-line conveniences (`color`, `sparklineDashedFromIndex`) don't apply — set them per series.
 - `sparklineTooltip` is a render prop passed straight to the sparkline (off by default, since hover already scrubs the headline) — supply `(ctx) => <DefaultTooltip {...ctx} />` to also show a hover tooltip, e.g. the per-series breakdown behind a multi-series total.
-- Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (a `Tooltip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).
+- Things `Metric` deliberately doesn't have props for — compose them yourself around it: a clickable tile (put the handler on the wrapping `Card`), a footer (a sibling node after `MetricSparkline`), an info icon next to the title (an `Infotip` inside `MetricTitle`), and a loading state (render `Skeleton`s instead of the `Metric`).
 
 ## Maintenance
 
