@@ -54,6 +54,7 @@ from products.messaging.backend.provider_imports.contacts import (
     save_contact_properties,
 )
 from products.messaging.backend.provider_imports.emails import exact_email, normalized_email
+from products.messaging.backend.provider_imports.images import TemplateImages
 from products.messaging.backend.provider_imports.liquid_text import literal_liquid
 from products.messaging.backend.provider_imports.resend_templates import (
     ConvertedTemplate,
@@ -68,6 +69,7 @@ from products.messaging.backend.services.imported_data import (
     import_categories,
     import_opt_outs,
     import_suppressions,
+    taken_template_keys,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
 from products.messaging.backend.services.resend_client import (
@@ -77,9 +79,13 @@ from products.messaging.backend.services.resend_client import (
     ResendKeyRejected,
     ResendRateLimited,
 )
-from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail
+from products.workflows.backend.facade.contracts import EmailImageSource, ImportedEmail, ImportedStepEmail
 from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, resend_segment_description
-from products.workflows.backend.facade.workflow_imports import import_resend_automation, reuse_import_access
+from products.workflows.backend.facade.workflow_imports import (
+    import_resend_automation,
+    imported_resend_automation_ids,
+    reuse_import_access,
+)
 from products.workflows.backend.facade.writes import defer_hog_flow_reloads
 
 # The key check runs on the request path, so it gets a short timeout and doesn't wait out a rate limit or retry.
@@ -120,6 +126,11 @@ class ResendImportProvider(ImportProvider):
     retains_credentials = False
     resumes_after_failure = True
     feature_flag = "workflows-resend-import"
+    image_source = EmailImageSource(
+        key="resend",
+        label="Resend",
+        hosts=("resend-attachments.s3.amazonaws.com", "resend-attachments.s3.us-east-1.amazonaws.com"),
+    )
     api_key_label = "Resend API key"
     api_key_help = (
         "Resend has no read-only keys, so this needs a key with full access. PostHog only reads from your account, "
@@ -672,6 +683,9 @@ def _fetch_templates(
         templates = [
             client.get(f"/templates/{_path_part(template['id'])}") for template in page.data if template.get("id")
         ]
+        if context.images.enabled:
+            taken = taken_template_keys(context.team_id, [_template_key(template) for template in templates])
+            context.images.copy(_html(template) for template in templates if _template_key(template) not in taken)
         yield ImportPage(
             processed=len(page.data),
             save=partial(_save_templates, context, templates),
@@ -686,14 +700,23 @@ def _template_key(template: dict[str, Any]) -> str:
     return f"resend-{template.get('id')}"[:256]
 
 
+def _html(template: dict[str, Any]) -> str:
+    return str(template.get("html") or "")
+
+
+def _converted(template: dict[str, Any], images: TemplateImages) -> ConvertedTemplate:
+    converted = convert_template(template)
+    placed = images.place(converted.html)
+    return replace(converted, html=placed.html, notes=(*converted.notes, *placed.notes))
+
+
 def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> SavedPage:
     senders = _senders(context.team_id)
-    # A deleted template counts too: importing again must not bring back one someone deleted.
     keys = [_template_key(t) for t in templates]
+    code_keys = code_email_keys(context.team_id, keys)
     template_keys = set(
         MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
     )
-    code_keys = code_email_keys(context.team_id, keys)
     taken = template_keys | code_keys
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
@@ -715,7 +738,7 @@ def _save_templates(context: ImportContext, templates: list[dict[str, Any]]) -> 
             )
             continue
         taken.add(key)
-        converted = convert_template(template)
+        converted = _converted(template, context.images)
         content = _email_content(template, converted, senders)
         email = content.email
         notes = (*converted.notes, *converted.send_notes, *content.subject_notes, *content.sender_notes)
@@ -826,6 +849,17 @@ def _fetch_automations(
         for segment_id in segment_ids:
             if segment_id not in segments:
                 segments[segment_id] = _read_segment_name(client, segment_id)
+        if context.images.enabled:
+            imported = imported_resend_automation_ids(
+                context.team_id, [str(automation.get("id")) for automation in automations]
+            )
+            new_references = {
+                reference
+                for automation in automations
+                if str(automation.get("id")) not in imported
+                for reference in _template_references(automation)
+            }
+            context.images.copy(_html(template) for reference in new_references if (template := templates[reference]))
         yield ImportPage(
             processed=len(page.data),
             save=partial(
@@ -894,7 +928,8 @@ def _save_automations(
 ) -> SavedPage:
     senders = _senders(context.team_id)
     emails = {
-        reference: _imported_email(template, senders) if template else None for reference, template in templates.items()
+        reference: _imported_email(template, senders, context.images) if template else None
+        for reference, template in templates.items()
     }
     items: list[ImportItem] = []
     counts: Counter[str] = Counter()
@@ -922,8 +957,10 @@ def _save_automations(
     return SavedPage(imported=counts["created"], counts=dict(counts), items=tuple(items))
 
 
-def _imported_email(template: dict[str, Any], senders: Mapping[str, IntegrationRecord]) -> ImportedEmail:
-    converted = convert_template(template)
+def _imported_email(
+    template: dict[str, Any], senders: Mapping[str, IntegrationRecord], images: TemplateImages | None = None
+) -> ImportedEmail:
+    converted = _converted(template, images or TemplateImages())
     content = _email_content(template, converted, senders, target="step")
     return ImportedEmail(
         subject=converted.subject,

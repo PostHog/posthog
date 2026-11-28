@@ -10,6 +10,9 @@ from posthog.ingress.contracts import WebhookDelivery
 from posthog.models import OrganizationMembership, Team, User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.workflows.backend.facade.contracts import (
     CohortDependentWorkflow,
     EmailDomainCheck,
@@ -184,6 +187,15 @@ def get_workflow_opt_out_category_ids(*, team_id: int, workflow_id: UUID) -> set
 
 def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
     """Whether the user is active, still in the team's organization, and may edit its workflows."""
+    return _can_edit(team_id, user_id, ResourceType.HOG_FLOW)
+
+
+def can_edit_media(*, team_id: int, user_id: int | None) -> bool:
+    """Whether the user is active, still in the team's organization, and may add to its media library."""
+    return _can_edit(team_id, user_id, ResourceType.UPLOADED_MEDIA)
+
+
+def _can_edit(team_id: int, user_id: int | None, resource_type: ResourceType) -> bool:
     user = User.objects.filter(id=user_id, is_active=True).first() if user_id else None
     team = Team.objects.get(id=team_id)
     # Access rules alone don't say whether the person is still in the organization.
@@ -192,8 +204,17 @@ def can_edit_workflows(*, team_id: int, user_id: int | None) -> bool:
         or not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
     ):
         return False
-    access = UserAccessControl(user=user, team=team)
-    return access.has_project_access and access.check_access_level_for_resource("hog_flow", "editor")
+    subject = Subject(user_id=user.pk)
+    return all(
+        authorization.check(
+            [
+                CheckRequest(resource=Resource.project(team.pk), action=Action.VIEW, subject=subject),
+                CheckRequest(
+                    resource=Resource(type=resource_type, project_id=team.pk), action=Action.EDIT, subject=subject
+                ),
+            ]
+        )
+    )
 
 
 def workflow_exists(*, team_id: int, workflow_id: UUID) -> bool:

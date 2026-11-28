@@ -36,7 +36,9 @@ from products.messaging.backend.facade.provider_imports import (
     list_import_providers,
     list_provider_import_runs,
     start_provider_import,
+    template_image_access,
 )
+from products.workflows.backend.facade.email_images import can_upload_media
 
 CUSTOMERIO_PROVIDER = "customerio"
 
@@ -298,6 +300,11 @@ class ProviderImportViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 data.get("api_key"),
                 request.user.id,
                 data.get("settings"),
+                template_image_access(
+                    str(self.team.uuid),
+                    str(self.team.organization_id),
+                    can_upload=lambda: can_upload_media(team_id=self.team_id, user_id=request.user.id, scopes=scopes),
+                ),
             )
         except ProviderImportRejected as e:
             report_user_action(

@@ -1,6 +1,6 @@
 """Saves a translated Resend automation as a draft workflow."""
 
-from collections.abc import Iterator, Mapping
+from collections.abc import Iterable, Iterator, Mapping
 from contextlib import contextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -13,6 +13,7 @@ from products.access_control.backend.facade.user_access_control import UserAcces
 from products.cdp.backend.flag_gated_templates import hidden_gated_template_ids
 from products.workflows.backend.facade.contracts import ImportedEmail, ImportedStepEmail, ProviderAutomationResult
 from products.workflows.backend.facade.enums import WorkflowImportSource
+from products.workflows.backend.models.workflow_import import WorkflowImport
 from products.workflows.backend.services.customerio_import.service import previous_import
 from products.workflows.backend.services.provider_cohorts import (
     MAX_SOURCE_NAME_LENGTH,
@@ -145,6 +146,15 @@ def import_resend_automation(
             ),
         )
     return save_provider_draft(team, user, translated, WorkflowImportSource.RESEND, record_id=previous.record_id)
+
+
+def imported_resend_automation_ids(team_id: int, automation_ids: Iterable[str]) -> set[str]:
+    """The automations a rerun leaves alone, because their workflow still exists."""
+    return set(
+        WorkflowImport.objects.for_team(team_id)
+        .filter(source=WorkflowImportSource.RESEND.value, source_id__in=list(automation_ids), hog_flow__isnull=False)
+        .values_list("source_id", flat=True)
+    )
 
 
 def _segment_cohort(

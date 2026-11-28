@@ -1441,6 +1441,14 @@ class EmailImageSource:
     host_suffixes: tuple[str, ...] = ()
 
 
+@frozen
+class CopiedImages:
+    """Source URL to media library URL, for every image that is in the library now."""
+
+    copies: Mapping[str, str]
+    downloads: int
+
+
 @dataclass(frozen=False)
 class ImageBudget:
     """How many more email images one import request may copy, and until when, shared by every automation in it."""

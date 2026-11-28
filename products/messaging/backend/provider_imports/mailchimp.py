@@ -27,7 +27,6 @@ from posthog.dataclasses import frozen
 from posthog.integrations import IntegrationManager, IntegrationRecord
 
 from products.messaging.backend.models.message_suppression import SuppressionSource
-from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.provider_import_run import ImportProviderKey, ProviderImportRun
 from products.messaging.backend.models.transactional_email_key import lock_team_keys
 from products.messaging.backend.provider_imports.base import (
@@ -67,6 +66,7 @@ from products.messaging.backend.services.imported_data import (
     import_categories,
     import_opt_outs,
     import_suppressions,
+    taken_template_keys,
 )
 from products.messaging.backend.services.mailchimp_client import (
     MailchimpAPIError,
@@ -78,6 +78,7 @@ from products.messaging.backend.services.mailchimp_client import (
     quoted,
 )
 from products.messaging.backend.services.message_templates import create_template, with_editor_design
+from products.workflows.backend.facade.contracts import EmailImageSource
 from products.workflows.backend.facade.people_import import MAX_SOURCE_NAME_LENGTH, described_static_cohorts
 
 logger = logging.getLogger(__name__)
@@ -116,6 +117,9 @@ _MAILCHIMP_IMAGE = re.compile(
 HOSTED_IMAGES_NOTE = (
     "Mailchimp still hosts images in this email. Upload them to PostHog and replace them before you close your "
     "Mailchimp account."
+)
+HOSTED_IMAGES_NEXT_STEP = (
+    "Mailchimp keeps hosting the images in your emails. Upload them to PostHog before you close your Mailchimp account."
 )
 # Each audience becomes its own cohort, and the contacts step saves them all in one transaction.
 MAX_AUDIENCES = 500
@@ -203,6 +207,14 @@ class MailchimpImportProvider(ImportProvider):
     label = ImportProviderKey.MAILCHIMP.label
     retains_credentials = False
     feature_flag = "workflows-mailchimp-import"
+    hosted_images_next_step = HOSTED_IMAGES_NEXT_STEP
+    image_source = EmailImageSource(
+        key="mailchimp",
+        label="Mailchimp",
+        hosts=("mcusercontent.com", "gallery.mailchimp.com", "cdn-images.mailchimp.com"),
+        # Subdomains serve resized copies.
+        host_suffixes=("mcusercontent.com",),
+    )
     api_key_label = "Mailchimp API key"
     api_key_help = (
         "Mailchimp API keys can read and change everything in your account. PostHog only reads from it, deletes the "
@@ -219,8 +231,7 @@ class MailchimpImportProvider(ImportProvider):
         "Mailchimp fills merge tags such as *|COMPANY|* from the audience. PostHog reads *|FNAME|* and *|LNAME|* "
         "from the first_name and last_name person properties and every other tag from the property of the same "
         "name. The Contacts step fills these in from your merge fields. Send them to PostHog for people who join later.",
-        "Mailchimp keeps hosting the images in your emails. Upload them to PostHog before you close your Mailchimp "
-        "account.",
+        HOSTED_IMAGES_NEXT_STEP,
         "Recipients see the imported audience and group names on the email preferences page. Rename any you don't "
         "want them to see.",
         "Import once more right before you delete an audience or close your Mailchimp account. PostHog can't see who "
@@ -1390,6 +1401,9 @@ def _paged_emails(
     for start in range(0, len(remaining), EMAILS_PER_PAGE):
         chunk = remaining[start : start + EMAILS_PER_PAGE]
         emails = [read(key) for key in chunk]
+        if context.images.enabled:
+            taken = taken_template_keys(context.team_id, [email.key for email in emails])
+            context.images.copy(email.html for email in emails if email.key not in taken)
         is_last = start + EMAILS_PER_PAGE >= len(remaining)
         yield ImportPage(
             processed=len(chunk),
@@ -1647,10 +1661,7 @@ class _PendingTemplate:
 def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
     senders = _senders(context.team_id)
     keys = [email.key for email in emails]
-    # A deleted template counts too: importing again must not bring back one someone deleted.
-    taken = set(
-        MessageTemplate.objects.filter(team_id=context.team_id, key__in=keys).values_list("key", flat=True)
-    ) | code_email_keys(context.team_id, keys)
+    taken = taken_template_keys(context.team_id, keys)
     items: list[ImportItem] = []
     pending: list[_PendingTemplate] = []
     counts: Counter[str] = Counter()
@@ -1680,7 +1691,8 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
         converted = convert_email(
             source.subject, source.html, source.text, source.fixed, expects_subject=source.has_subject
         )
-        email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": converted.html})
+        placed = context.images.place(converted.html)
+        email: dict[str, Any] = with_editor_design({"subject": converted.subject, "html": placed.html})
         if converted.text:
             email["text"] = converted.text
         preview_notes: tuple[str, ...] = ()
@@ -1693,7 +1705,12 @@ def _save_emails(context: ImportContext, emails: list[_Email]) -> SavedPage:
         sender_notes: tuple[str, ...] = ()
         if source.from_email:
             sender_notes = apply_sender(email, source.from_name, source.from_email, senders)
-        image_notes = (HOSTED_IMAGES_NOTE,) if _MAILCHIMP_IMAGE.search(email["html"]) else ()
+        # With copying on, the placed notes name what still loads from Mailchimp.
+        image_notes = (
+            placed.notes
+            if context.images.enabled
+            else ((HOSTED_IMAGES_NOTE,) if _MAILCHIMP_IMAGE.search(email["html"]) else ())
+        )
         notes = (*source.notes, *converted.notes, *preview_notes, *converted.send_notes, *image_notes, *sender_notes)
         fields = {
             "name": source.label,
