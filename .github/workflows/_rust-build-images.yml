@@ -49,8 +49,6 @@ on:
                 required: false
             POSTHOG_DEVEX_PROJECT_API_TOKEN:
                 required: false
-            POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY:
-                required: false
             AWS_ECR_SHARED_SERVICES_PUBLISH_IAM_ROLE:
                 required: false
         outputs:
@@ -196,23 +194,17 @@ jobs:
                   echo "::add-mask::$SCCACHE_WEBDAV_TOKEN"
                   echo "token=$SCCACHE_WEBDAV_TOKEN" >> "$GITHUB_OUTPUT"
 
-            # Native debug symbols upload to PostHog error tracking from inside the
-            # image build (see rust/Dockerfile). Only master builds on the canonical
-            # deploy repo get the token; everywhere else the Dockerfile skips the
-            # upload, so unrebased branches and forks are unaffected.
-            - name: Prepare symbol upload token
+            # Native debug symbols go to PostHog error tracking from the runner, after the image
+            # is pushed (see "Upload native debug symbols" below). Only master pushes on the
+            # canonical deploy repo upload them: those are the runs the trust policy admits, and a
+            # dispatch builds an unreviewed branch. Only rust/Dockerfile has the symbols stage.
+            - name: Decide whether to upload symbols
               id: symbols
               env:
-                  TOKEN: ${{ secrets.POSTHOG_UPLOAD_SYMBOLS_CLI_API_KEY }}
-                  ENABLED: ${{ github.event_name != 'pull_request' && vars.CD_DEPLOY_ENABLED == 'true' }}
+                  ENABLED: ${{ github.event_name == 'push' && github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true' && matrix.dockerfile == './rust/Dockerfile' }}
               run: |
-                  if [ "$ENABLED" = "true" ] && [ -n "$TOKEN" ]; then
-                      echo "::add-mask::$TOKEN"
-                      echo "token=$TOKEN" >> "$GITHUB_OUTPUT"
-                      # Unique per run: secret mounts don't participate in the layer
-                      # cache key, so this busts the cache to guarantee the upload
-                      # actually runs on token-bearing builds (see rust/Dockerfile).
-                      echo "trigger=${{ github.run_id }}-${{ github.run_attempt }}" >> "$GITHUB_OUTPUT"
+                  if [ "$ENABLED" = "true" ]; then
+                      echo "enabled=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "Native symbol upload disabled for this build"
                   fi
@@ -239,11 +231,116 @@ jobs:
                       EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
                       SQLX_DATABASES=${{ matrix.sqlx_databases || '' }}
                       SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
-                      SYMBOL_UPLOAD_TRIGGER=${{ steps.symbols.outputs.trigger }}
                   secrets: |
                       SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
                       SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
-                      posthog_upload_symbols_cli_api_key=${{ steps.symbols.outputs.token }}
+
+            # The symbols stage of rust/Dockerfile: the binary and the workspace sources its
+            # debug info names. The same arguments as the image build, so the builder stage
+            # comes from the layer cache and only the collect step runs. Symbols must never
+            # block shipping an image, so this step and the upload warn instead of failing.
+            - name: Export native debug symbols
+              id: export_symbols
+              if: steps.symbols.outputs.enabled == 'true'
+              continue-on-error: true
+              # continue-on-error does not cover the job's own timeout-minutes, which would cancel
+              # the job after the image push and skip the deploy, so both steps stay well inside it.
+              timeout-minutes: 10
+              uses: depot/build-push-action@5f3b3c2e5a00f0093de47f657aeaefcedff27d18 # v1.17.0
+              with:
+                  project: ${{ matrix.project }}
+                  context: ./rust/
+                  file: ${{ matrix.dockerfile }}
+                  target: symbols
+                  platforms: linux/arm64,linux/amd64
+                  outputs: type=local,dest=${{ runner.temp }}/symbols
+                  build-args: |
+                      SCCACHE_LOG=debug
+                      SCCACHE_NO_DAEMON=1
+                      BIN=${{ matrix.bin || matrix.image }}
+                      BUILD_FEATURES=${{ matrix.features || '' }}
+                      EXTRA_RUSTFLAGS=${{ matrix.extra_rustflags || '' }}
+                      EXTRA_CFLAGS=${{ matrix.extra_cflags || '' }}
+                      SQLX_DATABASES=${{ matrix.sqlx_databases || '' }}
+                      SCCACHE_WEBDAV_KEY_PREFIX=${{ steps.sccache.outputs.cache-key-prefix }}
+                  secrets: |
+                      SCCACHE_WEBDAV_ENDPOINT=${{ steps.sccache.outputs.endpoint }}
+                      SCCACHE_WEBDAV_TOKEN=${{ steps.sccache.outputs.token }}
+
+            # They go to the internal PostHog project (HOG_PROJECT_ID=2 on US cloud), and hog logs
+            # in with this job's OIDC token, through the trust policy for master pushes of the deploy
+            # repo. hog finds each source file at the path DWARF records, so the sources go back to
+            # those absolute paths under /app before each platform's upload. GITHUB_SHA stays unset
+            # for hog, so it stamps no release: symbolication resolves by GNU build id alone, and
+            # the image jobs run concurrently, so a shared lookup-then-create release would race.
+            - name: Upload native debug symbols
+              if: steps.export_symbols.outcome == 'success'
+              continue-on-error: true
+              timeout-minutes: 5
+              env:
+                  BIN: ${{ matrix.bin || matrix.image }}
+                  HOG_PROJECT_ID: '2'
+                  # Copy the checksum from the release's SHA256SUMS when HOG_VERSION changes.
+                  HOG_VERSION: 0.3.0
+                  HOG_SHA256: 9dff37a41ec5bf947c190fc4760e95a051be9ea7744eb3d0f4a4e7be695674bc
+              run: |
+                  set -euo pipefail
+                  hog_dir="$RUNNER_TEMP/hog"
+                  mkdir -p "$hog_dir"
+                  curl --proto '=https' --tlsv1.2 -fsSL --retry 5 --retry-all-errors --retry-max-time 60 --connect-timeout 10 \
+                      -o "$hog_dir/hog.tar.gz" \
+                      "https://github.com/PostHog/posthog/releases/download/hog%2Fv$HOG_VERSION/hog-linux-x64.tar.gz"
+                  echo "$HOG_SHA256  $hog_dir/hog.tar.gz" | sha256sum -c -
+                  # hog runs hog-worker from its own folder, so the archive is extracted whole.
+                  tar -xzf "$hog_dir/hog.tar.gz" -C "$hog_dir"
+
+                  # The build produced the archive, so its members are untrusted: a dependency's build
+                  # script can name any path in a dep-info file. This unpacks it unprivileged into an
+                  # empty folder, and refuses anything but regular files and folders under app/.
+                  unpack_sources() {
+                      python3 - "$1" "$2" <<'PY'
+                  import os, shutil, sys, tarfile
+
+                  archive, root = sys.argv[1], sys.argv[2]
+                  os.makedirs(root)
+                  with tarfile.open(archive) as tar:
+                      for member in tar:
+                          parts = member.name.split("/")
+                          safe = (
+                              parts[0] == "app"
+                              and len(parts) > 1
+                              and not any(part in ("", ".", "..") for part in parts)
+                              and (member.isfile() or member.isdir())
+                          )
+                          if not safe:
+                              sys.exit(f"refusing archive member {member.name!r}")
+                          target = os.path.join(root, *parts)
+                          if member.isdir():
+                              os.makedirs(target, exist_ok=True)
+                              continue
+                          os.makedirs(os.path.dirname(target), exist_ok=True)
+                          with tar.extractfile(member) as source, open(target, "xb") as destination:
+                              shutil.copyfileobj(source, destination)
+                  PY
+                  }
+
+                  sudo mkdir -p /app
+                  for platform_dir in "$RUNNER_TEMP"/symbols/linux_*; do
+                      platform=$(basename "$platform_dir")
+                      sources="$RUNNER_TEMP/symbol-sources/$platform"
+                      unpack_sources "$platform_dir/sources.tar" "$sources"
+                      # The bind mount puts only the unpacked app/ folder at the /app paths DWARF records.
+                      sudo mount --bind "$sources/app" /app
+                      mkdir -p "$platform_dir/binary"
+                      mv "$platform_dir/$BIN" "$platform_dir/binary/"
+                      status=0
+                      env -u GITHUB_SHA "$hog_dir/hog" error-tracking upload "$platform_dir/binary" --include-source || status=$?
+                      sudo umount /app
+                      if [ "$status" -ne 0 ]; then
+                          exit "$status"
+                      fi
+                      echo "Native debug symbols uploaded for $BIN ($platform)"
+                  done
 
             - name: Build failure properties
               if: failure()
