@@ -14,6 +14,7 @@ import type { ValveTimelineEntry } from '../valves/valves'
 import { CounterReading, counterDrift } from './drift'
 import { deliveryKey } from './invariants'
 import type { JudgeEvidence } from './invariants'
+import type { IntakeAnswer, JournalEntry } from './judge'
 
 export type MetricSample = {
     role: string
@@ -57,6 +58,7 @@ export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets' | 'boundary'> 
         counters?: CounterReading
         unread?: string
         horizonAt?: number
+        horizonSeq?: number
         converged?: boolean
         unsettled?: string
     }
@@ -165,6 +167,100 @@ export const deliveryLatencyMs: MeasurementDefinition = {
                   { key: 'p95', value: nearestRank(latencies, 0.95) },
                   { key: 'max', value: latencies.at(-1)! },
               ]
+    },
+}
+
+function webhookTriggersByStep({ journal, steps }: MeasureEvidence): [Step, JournalEntry[]][] {
+    const byStep = Map.groupBy(
+        journal.filter(({ kind, step }) => kind === 'webhook' && step !== undefined),
+        ({ step }) => step!
+    )
+    return steps.map((step, index) => [step, byStep.get(index) ?? []])
+}
+
+const untimedAttempt = ({ answer }: JournalEntry): boolean =>
+    (answer.retries ?? 0) + 1 > (answer.attemptsMs?.length ?? 0)
+
+export const webhookTriggerAnswerMs: MeasurementDefinition = {
+    name: 'webhook_trigger_answer_ms',
+    params: z.object({}).strict(),
+    unit: 'ms',
+    measure: (evidence) =>
+        webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
+            const answered = triggers.flatMap(({ answer }) => answer.attemptsMs ?? []).sort((a, b) => a - b)
+            const incompleteness = triggers.some(untimedAttempt) ? { incomplete: true as const } : {}
+            return (
+                [
+                    ['p50', 0.5],
+                    ['p99', 0.99],
+                ] as const
+            ).map(([percentile, share]) => ({
+                key: `${percentile}_${scale}x`,
+                ...incompleteness,
+                ...(answered.length === 0
+                    ? { value: null, censored: true as const, unmeasured: 'cdp-api answered no trigger in this step' }
+                    : { value: nearestRank(answered, share) }),
+            }))
+        }),
+}
+
+const failedWith = (answer: IntakeAnswer, failed: (status: number) => boolean): boolean =>
+    !answer.accepted && ('transportError' in answer ? failed(0) : failed(answer.status))
+
+export const webhookTriggerOutcomes: MeasurementDefinition = {
+    name: 'webhook_trigger_outcomes',
+    params: z.object({}).strict(),
+    unit: 'triggers',
+    measure: (evidence) => {
+        const { horizonSeq } = evidence
+        const delivered = new Set(
+            evidence.truth.flatMap(({ seq, unitId, actionId, status }) =>
+                unitId !== undefined &&
+                actionId !== undefined &&
+                status >= 200 &&
+                status < 300 &&
+                horizonSeq !== undefined &&
+                seq <= horizonSeq
+                    ? [deliveryKey(unitId, actionId)]
+                    : []
+            )
+        )
+        return webhookTriggersByStep(evidence).flatMap(([{ scale }, triggers]) => {
+            const accepted = triggers.filter(({ answer }) => answer.accepted)
+            return [
+                { key: `offered_${scale}x`, value: triggers.length },
+                { key: `accepted_${scale}x`, value: accepted.length },
+                {
+                    key: `rejected_${scale}x`,
+                    value: triggers.filter(({ answer }) =>
+                        failedWith(answer, (status) => status >= 400 && status < 500)
+                    ).length,
+                },
+                {
+                    key: `errors_${scale}x`,
+                    value: triggers.filter(({ answer }) =>
+                        failedWith(answer, (status) => status === 0 || status >= 500)
+                    ).length,
+                },
+                {
+                    key: `lost_${scale}x`,
+                    ...(evidence.unread !== undefined || horizonSeq === undefined
+                        ? {
+                              value: null,
+                              censored: true as const,
+                              unmeasured:
+                                  evidence.unread !== undefined
+                                      ? `the truth could not be read (${evidence.unread})`
+                                      : 'the run reached no recovery horizon',
+                          }
+                        : {
+                              value: accepted.filter(({ unitId, expect }) =>
+                                  expect.deliveries.some((actionId) => !delivered.has(deliveryKey(unitId, actionId)))
+                              ).length,
+                          }),
+                },
+            ]
+        })
     },
 }
 
@@ -596,6 +692,8 @@ export const MEASUREMENTS: MeasurementDefinition[] = [
     roleCpuSeconds,
     roleRssMaxBytes,
     deliveryLatencyMs,
+    webhookTriggerAnswerMs,
+    webhookTriggerOutcomes,
     counterDrift,
     ...RECOVERY_MEASUREMENTS,
 ]

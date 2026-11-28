@@ -266,8 +266,11 @@ export const REAL_CLOCK: SendClock = {
     },
 }
 
-const withRetries = (answer: IntakeAnswer, retries: number): JournalEntry['answer'] =>
-    retries === 0 ? answer : { ...answer, retries }
+const withRetries = (answer: IntakeAnswer, retries: number, attemptsMs: number[]): JournalEntry['answer'] => ({
+    ...answer,
+    ...(retries === 0 ? {} : { retries }),
+    ...(attemptsMs.length === 0 ? {} : { attemptsMs }),
+})
 
 function sendTransactional(
     unit: Unit,
@@ -285,16 +288,21 @@ async function sendWithRetries(
 ): Promise<JournalEntry['answer']> {
     const { backoffMs, maxWaitMs, deadlineMs } = SEND_RETRY
     const deadline = clock.now() + deadlineMs
+    const attemptsMs: number[] = []
     for (let retry = 0; ; retry += 1) {
+        const postedAt = clock.now()
         const answer = await post()
+        if (!('transportError' in answer)) {
+            attemptsMs.push(clock.now() - postedAt)
+        }
         const waitMs = Math.min(backoffMs * 2 ** retry, maxWaitMs)
         if (!('status' in answer) || answer.status < 500 || clock.now() + waitMs > deadline) {
-            return withRetries(answer, retry)
+            return withRetries(answer, retry, attemptsMs)
         }
         await clock.wait(waitMs, signal)
         signal.throwIfAborted()
         if (clock.now() > deadline) {
-            return withRetries(answer, retry)
+            return withRetries(answer, retry, attemptsMs)
         }
     }
 }
