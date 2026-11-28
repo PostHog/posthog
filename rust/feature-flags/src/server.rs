@@ -775,8 +775,8 @@ async fn create_readwrite_client(
             tracing::info!(
                 "Created {} ReadWriteClient (writer: {}, reader: {})",
                 client_type,
-                writer_url,
-                reader_url
+                redact_url_credentials(writer_url),
+                redact_url_credentials(reader_url)
             );
             Some(Arc::new(client))
         }
@@ -937,6 +937,7 @@ pub async fn create_redis_client(
         .take(retry_count as usize);
 
     let url_owned = url.to_string();
+    let logged_url = redact_url_credentials(url);
     let client_type_owned = client_type.to_string();
 
     let result = Retry::spawn(retry_strategy, || async {
@@ -963,7 +964,7 @@ pub async fn create_redis_client(
                     tracing::error!(
                         "Permanent error creating {} Redis client for URL {}: {}",
                         client_type_owned,
-                        url_owned,
+                        logged_url,
                         e
                     );
                     // Return Ok(Err) to stop retrying but signal error
@@ -995,12 +996,23 @@ pub async fn create_redis_client(
             tracing::error!(
                 "Failed to create {} Redis client for URL {} after {} retries: {}",
                 client_type_owned,
-                url_owned,
+                logged_url,
                 retry_count,
                 e
             );
             None
         }
+    }
+}
+
+fn redact_url_credentials(url: &str) -> String {
+    match url::Url::parse(url) {
+        Ok(mut parsed) => {
+            let _ = parsed.set_username("");
+            let _ = parsed.set_password(None);
+            parsed.to_string()
+        }
+        Err(_) => "<unparseable url>".to_string(),
     }
 }
 
@@ -1040,6 +1052,18 @@ mod tests {
             ),
             "expected ComponentFailure {{ tag: \"http-server\", reason: \"redis init failed\" }}, got {result:?}"
         );
+    }
+
+    #[rstest]
+    #[case::no_credentials("redis://localhost:6379", "redis://localhost:6379")]
+    #[case::password("rediss://:hunter2@redis.example:6379", "rediss://redis.example:6379")]
+    #[case::username_and_password(
+        "redis://app:hunter2@redis.example:6379/0",
+        "redis://redis.example:6379/0"
+    )]
+    #[case::unparseable("hunter2@redis.example", "<unparseable url>")]
+    fn redact_url_credentials_removes_userinfo(#[case] url: &str, #[case] expected: &str) {
+        assert_eq!(redact_url_credentials(url), expected);
     }
 
     /// An inverted toggle here moves a production read path with no other signal.
