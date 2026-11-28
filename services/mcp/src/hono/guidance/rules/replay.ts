@@ -1,6 +1,6 @@
 import { emptyResultRule, hasArg } from '../empty-result-rule'
 import type { GuidanceCall } from '../engine'
-import type { GuidanceRule } from '../rule-schema'
+import type { GuidanceRule, TextGuidanceRule } from '../rule-schema'
 
 const SESSION_RECORDINGS_LIST_TOOL = 'query-session-recordings-list'
 
@@ -34,7 +34,7 @@ function replayRule(rule: {
     recordingEnabled: boolean
     matches?: (call: GuidanceCall) => boolean
     requiresTool?: string[]
-    text: GuidanceRule['text']
+    text: TextGuidanceRule['text']
 }): GuidanceRule {
     return emptyResultRule({
         id: rule.id,

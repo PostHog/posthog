@@ -1,5 +1,5 @@
 import { readdirSync } from 'node:fs'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { GuidanceEngine, guidanceAnalyticsProperties, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
@@ -443,6 +443,10 @@ describe('GuidanceEngine', () => {
     describe('the cohorts-create messaging experiment', () => {
         const messagingRule = GUIDANCE_RULES.find((r) => r.id === 'cohorts-create-messaging')!
         const cohortsCreate: GuidanceCall = { toolName: 'cohorts-create', args: { name: 'Churned' }, isError: false }
+        const behavioralFilters = {
+            properties: { type: 'OR', values: [{ key: '$pageview', type: 'behavioral', value: 'performed_event' }] },
+        }
+        let exposures: string[] = []
         const messagingState = (
             flagValue: boolean | string | undefined,
             overrides: Partial<ResolvedState> = {}
@@ -450,9 +454,13 @@ describe('GuidanceEngine', () => {
             makeToolExecutorState([{ name: 'cohorts-create' }, { name: 'broadcasts-create' }], {
                 toolFeatureFlags: { 'xpm-mcp-placement': flagValue },
                 suppressAnalytics: false,
-                reportFlagExposure: vi.fn(),
+                reportFlagExposure: (flag) => exposures.push(flag),
                 ...overrides,
             })
+
+        beforeEach(() => {
+            exposures = []
+        })
 
         it.each([
             ['the treated arm', 'after_cohorts_create', 'shown', true],
@@ -467,10 +475,7 @@ describe('GuidanceEngine', () => {
             expect(notice).toMatchObject({ ruleId: 'cohorts-create-messaging', outcome })
             expect(notice?.text === undefined).toBe(outcome !== 'shown')
             expect(notice?.attemptId === undefined).toBe(outcome !== 'shown')
-            expect(state.reportFlagExposure).toHaveBeenCalledTimes(exposed ? 1 : 0)
-            if (exposed) {
-                expect(state.reportFlagExposure).toHaveBeenCalledWith('xpm-mcp-placement')
-            }
+            expect(exposures).toEqual(exposed ? ['xpm-mcp-placement'] : [])
         })
 
         it('offers the broadcast with a fresh attempt id in the treated arm', async () => {
@@ -493,6 +498,25 @@ describe('GuidanceEngine', () => {
             })
         })
 
+        it('offers the broadcast for a static cohort that filters on event behavior', async () => {
+            const call = { ...cohortsCreate, args: { name: 'Active', is_static: true, filters: behavioralFilters } }
+            await expect(
+                new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(
+                    messagingState('after_cohorts_create'),
+                    call
+                )
+            ).resolves.toMatchObject({ outcome: 'shown' })
+        })
+
+        it('withholds a consent-gated experiment without org consent and reports no exposure', async () => {
+            const notice = await new GuidanceEngine(makeGuidanceRedis(), [
+                { ...messagingRule, requiresAiConsent: true },
+            ]).evaluate(messagingState('after_cohorts_create', { aiConsentGiven: false }), cohortsCreate)
+
+            expect(notice).toEqual({ ruleId: 'cohorts-create-messaging', outcome: 'no_consent' })
+            expect(exposures).toEqual([])
+        })
+
         it('still shows the notice when reporting the exposure throws', async () => {
             const state = messagingState('after_cohorts_create', {
                 reportFlagExposure: () => {
@@ -511,12 +535,28 @@ describe('GuidanceEngine', () => {
                 [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
                 { ...cohortsCreate, isError: true },
             ],
+            [
+                'a dynamic cohort that filters on event behavior',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                { ...cohortsCreate, args: { name: 'Active', filters: behavioralFilters } },
+            ],
+            [
+                'a dynamic cohort that references another cohort',
+                [{ name: 'cohorts-create' }, { name: 'broadcasts-create' }],
+                {
+                    ...cohortsCreate,
+                    args: {
+                        name: 'Wrapper',
+                        filters: { properties: { type: 'OR', values: [{ type: 'cohort', value: 3 }] } },
+                    },
+                },
+            ],
         ])('stays silent and reports no exposure for %s', async (_label, tools, call) => {
             const state = messagingState('after_cohorts_create', { allTools: tools as ResolvedState['allTools'] })
             await expect(
                 new GuidanceEngine(makeGuidanceRedis(), [messagingRule]).evaluate(state, call)
             ).resolves.toBeUndefined()
-            expect(state.reportFlagExposure).not.toHaveBeenCalled()
+            expect(exposures).toEqual([])
         })
 
         it.each([

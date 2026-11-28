@@ -174,7 +174,7 @@ describe('ToolExecutor guidance notices', () => {
             mode: string,
             engine: GuidanceEngine,
             flagValue: boolean | string | undefined,
-            reportFlagExposure = vi.fn()
+            exposures: string[] = []
         ): Promise<CohortCall> {
             const tools = [
                 makeTool('cohorts-create', () => ({ id: 7, name: 'Churned' })),
@@ -192,7 +192,7 @@ describe('ToolExecutor guidance notices', () => {
                 useSingleExec: mode === 'exec',
                 suppressAnalytics: false,
                 toolFeatureFlags: { 'xpm-mcp-placement': flagValue },
-                reportFlagExposure,
+                reportFlagExposure: (flag) => exposures.push(flag),
             })
             const result = (await executor.handleToolCall(
                 mode === 'exec'
@@ -211,16 +211,11 @@ describe('ToolExecutor guidance notices', () => {
             ['exec', undefined],
         ])('returns the result of a run without guidance rules in %s mode when the flag is %s', async (mode, value) => {
             const withoutRules = await callCohortsCreate(mode, new GuidanceEngine(makeGuidanceRedis(), []), value)
-            const reportFlagExposure = vi.fn()
-            const dark = await callCohortsCreate(
-                mode,
-                new GuidanceEngine(makeGuidanceRedis()),
-                value,
-                reportFlagExposure
-            )
+            const exposures: string[] = []
+            const dark = await callCohortsCreate(mode, new GuidanceEngine(makeGuidanceRedis()), value, exposures)
 
             expect(dark.result).toEqual(withoutRules.result)
-            expect(reportFlagExposure).not.toHaveBeenCalled()
+            expect(exposures).toEqual([])
             expect(dark.properties).toMatchObject({
                 mcp_guidance_rule: 'cohorts-create-messaging',
                 mcp_guidance_outcome: 'flag_off',

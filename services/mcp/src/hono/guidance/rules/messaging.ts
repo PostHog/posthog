@@ -1,6 +1,16 @@
 import { areaFlag } from 'products/workflows/mcp/messagingPlacements'
 
+import type { GuidanceCall } from '../engine'
 import type { GuidanceRule } from '../rule-schema'
+
+const COHORT_FILTER_ON_BEHAVIOR_OR_COHORT = /"type":"(behavioral|cohort)"/
+
+function batchAudienceAccepts(call: GuidanceCall): boolean {
+    return (
+        call.args?.is_static === true ||
+        !COHORT_FILTER_ON_BEHAVIOR_OR_COHORT.test(JSON.stringify(call.args?.filters ?? null))
+    )
+}
 
 const rules: GuidanceRule[] = [
     {
@@ -11,6 +21,7 @@ const rules: GuidanceRule[] = [
         maxPerSession: 1,
         suppressIfCalled: ['broadcasts-create', 'workflows-create'],
         requiresTool: ['broadcasts-create'],
+        condition: ({ call }) => batchAudienceAccepts(call),
         experiment: {
             placement: 'mcp.after_cohorts_create',
             text: ({ attemptId }) =>

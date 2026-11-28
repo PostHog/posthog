@@ -9,7 +9,7 @@ import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GuidanceProductState } from './product-state'
-import type { GuidanceRule } from './rule-schema'
+import type { ExperimentGuidanceRule, GuidanceRule } from './rule-schema'
 import { GUIDANCE_RULES } from './rules'
 import { selfDrivingActivationGuidance } from './self-driving-activation'
 
@@ -41,7 +41,6 @@ export interface GuidanceNotice {
     outcome: GuidanceOutcome
     /** Only present when the notice is shown to the agent. */
     text?: string
-    /** Set on a shown experiment notice, so a later create call that echoes it can be joined to this one. */
     attemptId?: string
 }
 
@@ -348,41 +347,45 @@ function scopeKey(distinctId: string, handle: string | undefined): string {
 }
 
 function firedNotice(rule: GuidanceRule, state: ResolvedState, call: GuidanceCall): GuidanceNotice {
-    if (rule.experiment) {
-        return experimentNotice(rule, rule.experiment, state)
-    }
     if (rule.requiresAiConsent && state.aiConsentGiven !== true) {
         return { ruleId: rule.id, outcome: 'no_consent' }
     }
-    if (state.toolFeatureFlags?.[rule.flag] !== true || rule.text === undefined) {
+    if ('experiment' in rule) {
+        return experimentNotice(rule, state)
+    }
+    if (state.toolFeatureFlags?.[rule.flag] !== true) {
         return { ruleId: rule.id, outcome: 'flag_off' }
     }
     return { ruleId: rule.id, outcome: 'shown', text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
 }
 
-// Only a served variant is an exposure: a flag that is off or was never evaluated would
-// otherwise be counted as control. A failed report must not cost the caller the tool result.
-function experimentNotice(
-    rule: GuidanceRule,
-    experiment: NonNullable<GuidanceRule['experiment']>,
-    state: ResolvedState
-): GuidanceNotice {
-    const placement = placementState(experiment.placement, {
+function experimentNotice(rule: ExperimentGuidanceRule, state: ResolvedState): GuidanceNotice {
+    const placement = placementState(rule.experiment.placement, {
         value: (flag) => state.toolFeatureFlags?.[flag],
         payload: (flag) => state.guidanceFlagPayloads?.[flag],
     })
-    if (typeof state.toolFeatureFlags?.[rule.flag] === 'string') {
-        try {
-            state.reportFlagExposure?.(rule.flag)
-        } catch (error) {
-            console.warn('[Guidance] exposure report failed:', error instanceof Error ? error.message : String(error))
-        }
-    }
+    reportExposureOfServedVariant(rule.flag, state)
     if (!placement.active) {
         return { ruleId: rule.id, outcome: placement.reason === 'holdout' ? 'holdout' : 'flag_off' }
     }
     const attemptId = randomUUID()
-    return { ruleId: rule.id, outcome: 'shown', text: experiment.text({ copy: placement.copy, attemptId }), attemptId }
+    return {
+        ruleId: rule.id,
+        outcome: 'shown',
+        text: rule.experiment.text({ copy: placement.copy, attemptId }),
+        attemptId,
+    }
+}
+
+function reportExposureOfServedVariant(flag: string, state: ResolvedState): void {
+    if (typeof state.toolFeatureFlags?.[flag] !== 'string') {
+        return
+    }
+    try {
+        state.reportFlagExposure?.(flag)
+    } catch (error) {
+        console.warn('[Guidance] exposure report failed:', error instanceof Error ? error.message : String(error))
+    }
 }
 
 function hashKey(value: string): string {

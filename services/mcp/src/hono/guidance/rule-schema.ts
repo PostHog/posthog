@@ -26,7 +26,7 @@ const placementKeys = PLACEMENTS.map((placement) => placement.key) as [
     ...MessagingPlacementKey[],
 ]
 
-const guidanceRuleShape = z.object({
+const guidanceRuleBase = z.object({
     id: z.string().regex(/^[a-z0-9-]+$/),
     /** The feature flag that turns the rule on for a caller. Every rule ships off. */
     flag: z.string().min(1),
@@ -57,30 +57,34 @@ const guidanceRuleShape = z.object({
     requiresAiConsent: z.boolean().optional(),
     /** Runs for every outcome, so `shown` and `flag_off` callers stay comparable. A rejected call is not counted. */
     condition: z.custom<GuidanceCondition>((value) => typeof value === 'function').optional(),
-    text: z
-        .union([z.string().min(1).max(2000), z.custom<GuidanceText>((value) => typeof value === 'function')])
-        .optional(),
-    /** Runs the rule as an arm of a placement's experiment: the flag variant decides the outcome, and the text gets an attempt ID. */
-    experiment: z
-        .object({
+})
+
+const textRuleSchema = guidanceRuleBase
+    .extend({
+        text: z.union([z.string().min(1).max(2000), z.custom<GuidanceText>((value) => typeof value === 'function')]),
+    })
+    .strict()
+
+const experimentRuleSchema = guidanceRuleBase
+    .extend({
+        experiment: z.object({
             placement: z.enum(placementKeys),
             text: z.custom<ExperimentText>((value) => typeof value === 'function'),
-        })
-        .optional(),
-})
+        }),
+    })
+    .strict()
+    .refine((rule) => rule.flag === placementAreaFlag(rule.experiment.placement), {
+        path: ['flag'],
+        message: "An experiment rule uses its placement's area flag.",
+    })
 
-export const guidanceRuleSchema = guidanceRuleShape.superRefine((rule, ctx) => {
-    if ((rule.text === undefined) === (rule.experiment === undefined)) {
-        ctx.addIssue({ code: 'custom', message: 'A rule needs exactly one of `text` or `experiment`.' })
-    }
-    const placement = PLACEMENTS.find((candidate) => candidate.key === rule.experiment?.placement)
-    if (placement && rule.flag !== areaFlag(placement.area)) {
-        ctx.addIssue({
-            code: 'custom',
-            path: ['flag'],
-            message: `Use the placement's area flag ${areaFlag(placement.area)}.`,
-        })
-    }
-})
+function placementAreaFlag(key: MessagingPlacementKey): string | undefined {
+    const placement = PLACEMENTS.find((candidate) => candidate.key === key)
+    return placement && areaFlag(placement.area)
+}
+
+export const guidanceRuleSchema = z.union([textRuleSchema, experimentRuleSchema])
 
 export type GuidanceRule = z.infer<typeof guidanceRuleSchema>
+export type TextGuidanceRule = z.infer<typeof textRuleSchema>
+export type ExperimentGuidanceRule = z.infer<typeof experimentRuleSchema>
