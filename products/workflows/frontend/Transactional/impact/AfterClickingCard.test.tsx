@@ -8,11 +8,10 @@ import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, AppContext, TeamType } from '~/types'
 
 import type { TransactionalEmailImpactApi } from 'products/messaging/frontend/generated/api.schemas'
 import type {
@@ -124,7 +123,7 @@ describe('AfterClickingCard', () => {
                                 {
                                     session_id: 'session-recording',
                                     message_id: 'message-session-recording',
-                                    first_pageview_at: new Date().toISOString(),
+                                    first_pageview_at: new Date(Date.now() - 12 * 3600 * 1000).toISOString(),
                                 },
                             ],
                             has_more: false,
@@ -143,9 +142,25 @@ describe('AfterClickingCard', () => {
                     return [200, finished(scan, vision.answers.get(scan.id) ?? ANSWER)]
                 },
             },
+            patch: {
+                '/api/organizations/:organization_id/projects/:id/': async ({ request }) => {
+                    const patch = (await request.json()) as Partial<TeamType>
+                    linkTrackingOn = !!patch.workflows_config?.email_workflow_run_link_tag_enabled
+                    return [
+                        200,
+                        {
+                            ...REPLAY_ON,
+                            workflows_config: { ...REPLAY_ON.workflows_config, ...patch.workflows_config },
+                        },
+                    ]
+                },
+            },
             post: {
                 '/api/projects/:team_id/vision/requests/': async ({ request }) => {
                     const body = (await request.json()) as CreateObservationRequestApi
+                    if (body.session_ids.length === 0) {
+                        return [400, { attr: 'session_ids', detail: 'This list may not be empty.' }]
+                    }
                     vision.bodies.push(body)
                     await vision.createGate
                     const key = body.idempotency_key ?? `no-key-${vision.bodies.length}`
@@ -239,7 +254,7 @@ describe('AfterClickingCard', () => {
     it("asks the fixed question about the period's sessions and shows each answer", async () => {
         renderTab(REPLAY_ON)
 
-        expect(await screen.findByText(/Sessions from the last 6 hours wait until they have ended/)).toBeInTheDocument()
+        expect(await screen.findByText(/Sessions from the last day aren't scanned yet/)).toBeInTheDocument()
         await userEvent.click(screen.getByText('Scan sessions'))
 
         expect(await screen.findByText(ANSWER)).toBeInTheDocument()
@@ -248,7 +263,7 @@ describe('AfterClickingCard', () => {
             'href',
             expect.stringMatching(/\/replay\/session-a$/)
         )
-        expect(screen.getByText(/^1\ssession has no answer\.$/)).toBeInTheDocument()
+        expect(screen.getByText(/^No answer for 1\ssession\.$/)).toBeInTheDocument()
         expect(vision.bodies).toEqual([
             expect.objectContaining({
                 session_ids: ['session-a', 'session-b'],
@@ -335,13 +350,7 @@ describe('AfterClickingCard', () => {
         renderTab({ ...REPLAY_ON, workflows_config: { ...REPLAY_ON.workflows_config, ...trackingOff } })
         expect(await screen.findByText('No sessions to scan yet')).toBeInTheDocument()
 
-        linkTrackingOn = true
-        act(() => {
-            teamLogic.actions.loadCurrentTeamSuccess({
-                ...REPLAY_ON,
-                workflows_config: { ...REPLAY_ON.workflows_config, email_workflow_run_link_tag_enabled: true },
-            })
-        })
+        await userEvent.click(screen.getByText('Turn on for project'))
 
         expect(await screen.findByText(READY)).toBeInTheDocument()
     })

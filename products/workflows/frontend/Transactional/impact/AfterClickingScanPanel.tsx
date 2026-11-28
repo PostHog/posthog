@@ -11,6 +11,8 @@ import { VERDICT_LABEL } from 'products/replay_vision/frontend/utils/observation
 import { AfterClickingNotice } from './AfterClickingNotice'
 import { SCAN_QUESTION, afterClickingScanLogic, scanDisabledReason } from './afterClickingScanLogic'
 
+const RECENT_SESSIONS_WAIT = "Sessions from the last day aren't scanned yet, because they may still be recording."
+
 export function AfterClickingScanPanel(): JSX.Element {
     const { scanState: state, currentTeam } = useValues(afterClickingScanLogic)
     const { loadSessions, scanSessions } = useActions(afterClickingScanLogic)
@@ -45,7 +47,7 @@ export function AfterClickingScanPanel(): JSX.Element {
         case 'no-sessions':
             return (
                 <AfterClickingNotice title="No sessions to scan yet">
-                    <span className="text-secondary text-sm">Sessions show up here 6 hours after they start.</span>
+                    <span className="text-secondary text-sm">Sessions show up here a day after they start.</span>
                 </AfterClickingNotice>
             )
         case 'ready':
@@ -55,8 +57,7 @@ export function AfterClickingScanPanel(): JSX.Element {
                         Replay vision watches {state.hasMore ? `${state.sessionCount} of the` : 'the'}{' '}
                         {pluralize(state.sessionCount, 'session', 'sessions', !state.hasMore)} people started from this
                         email and answers one question for each: {SCAN_QUESTION} Each session it scans uses Replay
-                        vision credits.
-                        {state.hasRecent && ' Sessions from the last 6 hours wait until they have ended.'}
+                        vision credits. {RECENT_SESSIONS_WAIT}
                     </span>
                     {scanButton('Scan sessions')}
                 </AfterClickingNotice>
@@ -85,10 +86,9 @@ export function AfterClickingScanPanel(): JSX.Element {
                         </div>
                     ))}
                     {state.withoutAnswer > 0 && (
-                        <span className="text-secondary text-sm">
-                            {`${pluralize(state.withoutAnswer, 'session', 'sessions')} ${state.withoutAnswer === 1 ? 'has' : 'have'} no answer.`}
-                        </span>
+                        <span className="text-secondary text-sm">{`No answer for ${pluralize(state.withoutAnswer, 'session', 'sessions')}.`}</span>
                     )}
+                    <span className="text-secondary text-sm">{RECENT_SESSIONS_WAIT}</span>
                 </AfterClickingNotice>
             )
         case 'scan-error':

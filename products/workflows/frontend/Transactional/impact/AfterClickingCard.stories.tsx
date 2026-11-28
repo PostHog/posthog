@@ -143,7 +143,7 @@ export const Answers: StoryObj<AfterClickingStoryArgs> = {
     render: Template,
     args: { sessions: SESSIONS, scan: [202, FINISHED] },
     play: async ({ canvasElement }) => {
-        await scan(canvasElement, /^9\ssessions have no answer\.$/)
+        await scan(canvasElement, /^No answer for 9\ssessions\.$/)
         await within(canvasElement).findByText('Inconclusive')
     },
 }

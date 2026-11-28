@@ -38,7 +38,7 @@ export type AfterClickingScanState =
     | { kind: 'loading-sessions' }
     | { kind: 'sessions-error' }
     | { kind: 'no-sessions' }
-    | { kind: 'ready'; sessionCount: number; hasMore: boolean; hasRecent: boolean }
+    | { kind: 'ready'; sessionCount: number; hasMore: boolean }
     | { kind: 'scanning'; done: number; total: number }
     | { kind: 'finished'; answers: SessionAnswer[]; withoutAnswer: number }
     | { kind: 'scan-error'; message: string }
@@ -55,7 +55,7 @@ function scanErrorMessage(error: unknown, polling: boolean): string {
 }
 
 function endedSessionIds(sessions: TransactionalEmailImpactSessionsApi | null): string[] {
-    const ended = (sessions?.sessions ?? []).filter((session) => dayjs().diff(session.first_pageview_at, 'hour') >= 6)
+    const ended = (sessions?.sessions ?? []).filter((session) => dayjs().diff(session.first_pageview_at, 'day') >= 1)
     return ended.map((session) => session.session_id)
 }
 
@@ -159,6 +159,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                             date_from: dayjs()
                                 .subtract(props.days * 24, 'hour')
                                 .toISOString(),
+                            date_to: dayjs().subtract(1, 'day').toISOString(),
                         })
                     } finally {
                         breakpoint()
@@ -201,8 +202,7 @@ export const afterClickingScanLogic = kea<afterClickingScanLogicType>([
                 if (ended === 0) {
                     return { kind: 'no-sessions' }
                 }
-                const hasRecent = ended < sessions.sessions.length
-                return { kind: 'ready', sessionCount: ended, hasMore: sessions.has_more, hasRecent }
+                return { kind: 'ready', sessionCount: ended, hasMore: sessions.has_more }
             },
         ],
     }),
