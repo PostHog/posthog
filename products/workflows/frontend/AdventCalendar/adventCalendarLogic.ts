@@ -289,6 +289,7 @@ export interface adventCalendarLogicActions {
         isOnTime: boolean
         optionId: string | null
         stored: unknown
+        storedPending: unknown
         userUuid: string
     }
     pinDoor: (doorId: string) => {
@@ -325,6 +326,7 @@ export interface adventCalendarLogicActions {
         day: number
         isOnTime: boolean
         stored: unknown
+        storedPending: unknown
         userUuid: string
         wasGuessedOnTime: boolean
     }
@@ -413,6 +415,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             isLive,
             isOnTime,
             stored: storedProgressByUser(),
+            storedPending: storedTicketsByUser(PENDING_TICKETS_STORAGE_KEY),
         }),
         landTicket: true,
         resumePendingTickets: true,
@@ -423,6 +426,7 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             isOnTime,
             wasGuessedOnTime,
             stored: storedTicketsByUser(),
+            storedPending: storedTicketsByUser(PENDING_TICKETS_STORAGE_KEY),
         }),
         refreshClock: () => {
             const now = new Date()
@@ -476,10 +480,12 @@ export const adventCalendarLogic = kea<adventCalendarLogicType>([
             {} as Record<string, number[]>,
             { persist: true, storageKey: PENDING_TICKETS_STORAGE_KEY },
             {
-                openDoor: (state, { userUuid, day, isLive, isOnTime }) =>
-                    isLive && isOnTime ? withPendingDays(state, userUuid, (days) => withDay(days, day)) : state,
-                settleTicket: (state, { userUuid, day }) =>
-                    withPendingDays(state, userUuid, (days) => withoutDay(days, day)),
+                openDoor: (state, { userUuid, day, isLive, isOnTime, storedPending }) =>
+                    isLive && isOnTime
+                        ? withPendingDays(storedPending ?? state, userUuid, (days) => withDay(days, day))
+                        : state,
+                settleTicket: (state, { userUuid, day, storedPending }) =>
+                    withPendingDays(storedPending ?? state, userUuid, (days) => withoutDay(days, day)),
             },
         ],
         previewTicketDays: [

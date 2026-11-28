@@ -49,9 +49,9 @@ export function cleanProgressByUser(value: unknown): Record<string, AdventProgre
 export const TICKETS_STORAGE_KEY = 'workflows-advent-calendar-tickets'
 export const PENDING_TICKETS_STORAGE_KEY = 'workflows-advent-calendar-pending-tickets'
 
-export function storedTicketsByUser(): unknown {
+export function storedTicketsByUser(key: string = TICKETS_STORAGE_KEY): unknown {
     try {
-        return JSON.parse(window.localStorage.getItem(TICKETS_STORAGE_KEY) ?? 'null')
+        return JSON.parse(window.localStorage.getItem(key) ?? 'null')
     } catch {
         return null
     }
