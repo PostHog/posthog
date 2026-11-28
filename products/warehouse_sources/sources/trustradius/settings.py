@@ -17,6 +17,8 @@ class EndpointConfig(TypedDict):
     # Fields the request sorts by, so that `skip` paging is stable.
     sort: NotRequired[str]
     requires_products: NotRequired[bool]
+    # The TrustQuotes for Web report documents no `skip` or `limit` and groups days with `date-group`.
+    single_request: NotRequired[bool]
 
 
 ENDPOINTS: dict[str, EndpointConfig] = {
@@ -53,6 +55,23 @@ ENDPOINTS: dict[str, EndpointConfig] = {
         "sort": "date,productId,categoryId",
         "requires_products": True,
     },
+    "traffic_pages": {
+        "path": "reports/traffic/pages",
+        "data_selector": "",
+        "primary_keys": ["date", "productId", "url"],
+        "partition_key": "date",
+        "report": True,
+        "sort": "date,productId,url",
+        "requires_products": True,
+    },
+    "trustquotes_web_pages": {
+        "path": "reports/syndication/tqw/pages",
+        "data_selector": "",
+        "primary_keys": ["date", "productId", "widgetId", "link"],
+        "partition_key": "date",
+        "report": True,
+        "single_request": True,
+    },
     "visitor_insights_companies": {
         "path": "reports/visitor-insights/companies",
         "data_selector": "",
@@ -79,6 +98,8 @@ ENDPOINTS: dict[str, EndpointConfig] = {
 
 INCREMENTAL_FIELDS: dict[str, list[IncrementalField]] = {
     "traffic_products": [incremental_field("date")],
+    "traffic_pages": [incremental_field("date")],
+    "trustquotes_web_pages": [incremental_field("date")],
     "visitor_insights_companies": [incremental_field("date")],
     "visitor_insights_pages": [incremental_field("date")],
     "intent": [incremental_field("date", IncrementalFieldType.Date)],

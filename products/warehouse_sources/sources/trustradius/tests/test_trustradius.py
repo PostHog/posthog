@@ -139,7 +139,14 @@ def read_rows(endpoint: str, **kwargs: Any) -> list[dict[str, Any]]:
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
 @patch(f"{TRANSPORT}.PRODUCT_IDS_PER_REQUEST", 2)
 @patch(f"{TRANSPORT}.REPORT_PAGE_SIZE", 2)
-def test_traffic_products_batches_product_ids_and_walks_pages() -> None:
+@pytest.mark.parametrize(
+    ("endpoint", "path", "sort"),
+    [
+        ("traffic_products", "/v1/reports/traffic/products", "date,productId,categoryId"),
+        ("traffic_pages", "/v1/reports/traffic/pages", "date,productId,url"),
+    ],
+)
+def test_traffic_reports_batch_product_ids_and_walk_pages(endpoint: str, path: str, sort: str) -> None:
     def routes(path: str, params: dict[str, list[str]]) -> object:
         if path == "/v1/product-ids":
             return [{"_id": "p1"}, {"_id": "p2"}, {"_id": "p3"}]
@@ -150,32 +157,79 @@ def test_traffic_products_batches_product_ids_and_walks_pages() -> None:
 
     requests: list[tuple[str, dict]] = []
     with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(routes, requests)):
-        rows = read_rows("traffic_products")
+        rows = read_rows(endpoint)
 
     assert [(row["productId"], row["n"]) for row in rows] == [("p1", 0), ("p1", 1), ("p1", 2), ("p3", 0)]
     report_params = {
         "start-date": ["2025-03-10"],
         "end-date": ["2026-03-10"],
         "group": ["day"],
-        "sort": ["date,productId,categoryId"],
+        "sort": [sort],
         "format": ["json"],
         "limit": ["2"],
     }
     assert requests == [
         ("/v1/product-ids", {}),
-        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["0"]}),
-        ("/v1/reports/traffic/products", {**report_params, "products": ["p1,p2"], "skip": ["2"]}),
+        (path, {**report_params, "products": ["p1,p2"], "skip": ["0"]}),
+        (path, {**report_params, "products": ["p1,p2"], "skip": ["2"]}),
         # A short first page ends the batch without an extra request.
-        ("/v1/reports/traffic/products", {**report_params, "products": ["p3"], "skip": ["0"]}),
+        (path, {**report_params, "products": ["p3"], "skip": ["0"]}),
     ]
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
-def test_traffic_products_without_products_makes_no_report_request() -> None:
+@pytest.mark.parametrize("endpoint", ["traffic_products", "traffic_pages"])
+def test_traffic_reports_without_products_make_no_report_request(endpoint: str) -> None:
     requests: list[tuple[str, dict]] = []
     with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda path, params: [], requests)):
-        assert read_rows("traffic_products") == []
+        assert read_rows(endpoint) == []
     assert [path for path, _ in requests] == ["/v1/product-ids"]
+
+
+@time_machine.travel("2026-03-10T12:00:00Z", tick=False)
+@pytest.mark.parametrize(
+    ("should_use_incremental_field", "last_value", "expected_start"),
+    [
+        (False, None, "2025-03-10"),
+        (False, "2026-03-01", "2025-03-10"),
+        (True, None, "2025-03-10"),
+        (True, "2026-03-01", "2026-03-01"),
+        (True, "2026-03-01T00:00:00.000Z", "2026-03-01"),
+        (True, "2020-01-01", "2025-03-10"),
+    ],
+)
+@pytest.mark.parametrize(
+    "rows",
+    [
+        [],
+        [
+            {"date": "2026-03-05", "productId": "p1", "widgetId": "w1", "link": "https://example.com/a", "views": 3},
+            {"date": "2026-03-05", "productId": "p1", "widgetId": "w1", "link": "https://example.com/b", "views": 0},
+        ],
+    ],
+)
+def test_trustquotes_web_pages_reads_the_range_in_one_request(
+    should_use_incremental_field: bool, last_value: Any, expected_start: str, rows: list[dict[str, Any]]
+) -> None:
+    requests: list[tuple[str, dict]] = []
+    with patch("requests.adapters.HTTPAdapter.send", side_effect=routed_send(lambda p, q: rows, requests)):
+        result = read_rows(
+            "trustquotes_web_pages", should_use_incremental_field=should_use_incremental_field, last_value=last_value
+        )
+
+    assert result == rows
+    # The report documents no skip or limit, so a second request would read the same rows again.
+    assert requests == [
+        (
+            "/v1/reports/syndication/tqw/pages",
+            {
+                "start-date": [expected_start],
+                "end-date": ["2026-03-10"],
+                "date-group": ["day"],
+                "format": ["json"],
+            },
+        )
+    ]
 
 
 @time_machine.travel("2026-03-10T12:00:00Z", tick=False)
@@ -286,7 +340,15 @@ def test_intent_unexpected_response_shape_fails(body: object) -> None:
 
 @pytest.mark.parametrize(
     "endpoint",
-    ["products", "product_scores", "trustquotes", "tags", "visitor_insights_companies", "visitor_insights_pages"],
+    [
+        "products",
+        "product_scores",
+        "trustquotes",
+        "tags",
+        "trustquotes_web_pages",
+        "visitor_insights_companies",
+        "visitor_insights_pages",
+    ],
 )
 def test_unexpected_response_shape_fails_instead_of_erasing_table(endpoint: str) -> None:
     with patch("requests.adapters.HTTPAdapter.send", return_value=response({"unexpected": []})) as send:

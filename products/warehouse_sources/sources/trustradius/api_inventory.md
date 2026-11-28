@@ -15,6 +15,8 @@ Official references:
 | trustquotes                | `/trustquotes`                        | Array            | `id`                                      | Full refresh                          |
 | tags                       | `/tags`                               | Array            | `id`                                      | Full refresh                          |
 | traffic_products           | `/reports/traffic/products`           | Array            | `date`, `productId`, `categoryId`         | Full refresh or incremental on `date` |
+| traffic_pages              | `/reports/traffic/pages`              | Array            | `date`, `productId`, `url`                | Full refresh or incremental on `date` |
+| trustquotes_web_pages      | `/reports/syndication/tqw/pages`      | Array            | `date`, `productId`, `widgetId`, `link`   | Full refresh or incremental on `date` |
 | visitor_insights_companies | `/reports/visitor-insights/companies` | Array            | `date`, `productId`, `companyName`        | Full refresh or incremental on `date` |
 | visitor_insights_pages     | `/reports/visitor-insights/pages`     | Array            | `date`, `productId`, `companyName`, `url` | Full refresh or incremental on `date` |
 | intent                     | `/intent`                             | `accounts` array | `id`, `date`                              | Full refresh or incremental on `date` |
@@ -35,13 +37,18 @@ The security definition directs customers to their Client Success Manager for an
 
 The specification has no `/reviews` endpoint.
 
-The three report tables send `group=day`, a `start-date` and an `end-date`, and page with `skip` and `limit`.
+The two traffic reports and the two visitor insights reports send `group=day`, a `start-date` and an `end-date`, and page with `skip` and `limit`.
 They sort by the primary key fields, so the `skip` pages stay stable.
 A page shorter than the limit ends the walk.
-The traffic report requires product identifiers, so the source reads `/product-ids` first and sends them in groups of 50.
+The traffic reports require product identifiers, so the source reads `/product-ids` first and sends them in groups of 50.
+
+The TrustQuotes for Web report documents no `skip` or `limit`, and it groups days with `date-group`.
+The source therefore sends `date-group=day` with the date range and reads the range in one request.
+Its `page`, `link` and `domain` fields are optional in the specification.
+The key uses `link`, because one widget can show on pages of more than one domain.
 The visitor insights reports accept no product filter from the source, so they cover every licensed product.
 The specification tags both visitor insights operations as Legacy, and they need the matching license.
-A full refresh and the first incremental run read the last 365 days, because the specification documents no retention.
+For all report tables, a full refresh and the first incremental run read the last 365 days, because the specification documents no retention.
 An incremental run starts at the stored date, minus a default lookback of two days, because recent days can change.
 
 Intent data covers at most the 45 days before today.
@@ -50,7 +57,7 @@ The source therefore requests one full day at a time, from 44 days ago to yester
 Each row is one account on one day, with the `date` of the request added.
 A full refresh keeps only the days the API still serves, so incremental sync keeps the history.
 
-`/reports/traffic/pages`, `/reports/syndication/tqw/pages` and `/accounts/{account_id}` have no table yet.
+`/accounts/{account_id}` has no table yet.
 
 On 2026-10-05, requests without credentials and with an invented invalid key returned HTTP 401.
 Successful responses were verified against the official specification and mocked tests.

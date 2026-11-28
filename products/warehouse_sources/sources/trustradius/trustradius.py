@@ -61,13 +61,17 @@ def _start_date(today: date, history_days: int, should_use_incremental_field: bo
 def _report_pages(
     client: RESTClient, settings: EndpointConfig, start: date, end: date
 ) -> Iterator[list[dict[str, Any]]]:
-    params: dict[str, Any] = {
-        "start-date": start.isoformat(),
-        "end-date": end.isoformat(),
-        "group": "day",
-        "sort": settings["sort"],
-        "format": "json",
-    }
+    params: dict[str, Any] = {"start-date": start.isoformat(), "end-date": end.isoformat(), "format": "json"}
+    if settings.get("single_request"):
+        for page in client.paginate(
+            settings["path"], params={**params, "date-group": "day"}, data_selector="", data_selector_required=True
+        ):
+            if page:
+                yield page
+        reach_safe_point()
+        return
+
+    params = {**params, "group": "day", "sort": settings["sort"]}
     batches: list[dict[str, Any]] = [params]
     if settings.get("requires_products"):
         product_ids = [
