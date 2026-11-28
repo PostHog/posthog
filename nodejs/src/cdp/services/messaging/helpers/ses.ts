@@ -2,7 +2,6 @@ import addressparser from 'nodemailer/lib/addressparser'
 import { Counter } from 'prom-client'
 
 import { MinimalAppMetric } from '~/cdp/types'
-import { PosthogJwtAudience } from '~/cdp/utils/jwt-utils'
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 
@@ -265,7 +264,7 @@ const isSensitiveMail = (mail: { tags?: Record<string, unknown> } | undefined): 
 // Applied to its own output, it returns that output, so a link redacted before queueing records the same value.
 const sensitiveClickLink = (link: string): string => sensitiveLinkOrigin(resolveClickDestination(link))
 
-const JWT_PAYLOAD = /eyJ[\w-]*\.(eyJ[\w-]*)\.[\w-]*/g
+const PREFERENCES_TOKEN = /(\/messaging-preferences\/)eyJ[\w-]*\.eyJ[\w-]*\.[\w-]+/gi
 
 const percentDecoded = (link: string): string => {
     let decoded = link
@@ -279,19 +278,14 @@ const percentDecoded = (link: string): string => {
     return decoded
 }
 
-const isPreferencesTokenPayload = (payload: string): boolean => {
-    try {
-        const { aud } = parseJSON(Buffer.from(payload, 'base64url').toString())
-        return [aud].flat().includes(PosthogJwtAudience.SUBSCRIPTION_PREFERENCES)
-    } catch {
-        return false
-    }
+const withoutPreferencesToken = (link: string): string => {
+    const decoded = percentDecoded(link)
+    const redacted = decoded.replace(PREFERENCES_TOKEN, '$1*')
+    return redacted === decoded ? link : redacted
 }
 
-const holdsPreferencesToken = (link: string): boolean =>
-    [...percentDecoded(link).matchAll(JWT_PAYLOAD)].some(([, payload]) => isPreferencesTokenPayload(payload))
-
-const hidesClickLink = (link: string, isSensitive: boolean): boolean => isSensitive || holdsPreferencesToken(link)
+const clickedLink = (link: string, isSensitive: boolean): string =>
+    isSensitive ? sensitiveClickLink(link) : withoutPreferencesToken(resolveClickDestination(link))
 
 type LooseSesRecord = {
     mail?: { tags?: Record<string, unknown>; commonHeaders?: Record<string, unknown>; headers?: unknown }
@@ -669,9 +663,7 @@ export class SesWebhookHandler extends SnsEnvelopeVerifier {
                     timestamp = rec.open.timestamp
                 } else if ('click' in rec && rec.click) {
                     timestamp = rec.click.timestamp
-                    properties.$link_url = hidesClickLink(rec.click.link, isSensitive)
-                        ? sensitiveClickLink(rec.click.link)
-                        : resolveClickDestination(rec.click.link)
+                    properties.$link_url = clickedLink(rec.click.link, isSensitive)
                     const linkIndex = rec.click.linkTags?.[SES_LINK_INDEX_TAG]?.[0]
                     if (linkIndex !== undefined) {
                         properties.$link_index = linkIndex

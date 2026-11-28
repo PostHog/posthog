@@ -6,7 +6,6 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { FetchResponse, fetch } from '~/common/utils/request'
 
-import { JWT, PosthogJwtAudience } from '../../../utils/jwt-utils'
 import { RecipientTokensService } from '../recipient-tokens.service'
 import { SesWebhookHandler, nonexistentRecipients, normalizeClickUrl, resolveClickDestination } from './ses'
 import { SNS_SIGNING_CERT_CACHE_SIZE } from './sns-envelope'
@@ -177,52 +176,40 @@ describe('SesWebhookHandler', () => {
         })
     })
 
-    describe('a click on a link that holds a preferences token', () => {
-        const tokens = new RecipientTokensService(defaultConfig.ENCRYPTION_SALT_KEYS, '')
-        const token = tokens.generatePreferencesToken({ team_id: 1, identifier: 'to@example.com' })
+    describe('a click on a preferences link', () => {
+        const token = new RecipientTokensService(defaultConfig.ENCRYPTION_SALT_KEYS, '').generatePreferencesToken({
+            team_id: 1,
+            identifier: 'to@example.com',
+        })
         const preferencesLink = `https://app.posthog.com/messaging-preferences/${token}/`
-        const otherJwt = new JWT(defaultConfig.ENCRYPTION_SALT_KEYS).sign(
-            { team_id: 1 },
-            PosthogJwtAudience.CONVERSATIONS_TICKETS
-        )
+        const redactedLink = 'https://app.posthog.com/messaging-preferences/*/'
 
         it.each([
-            ['the preferences link', preferencesLink, 'https://app.posthog.com'],
-            ['the one-click unsubscribe link', `${preferencesLink}?one_click_unsubscribe=1`, 'https://app.posthog.com'],
+            ['the link', preferencesLink, redactedLink],
             [
-                'a link with a dot segment',
-                `https://app.posthog.com/messaging-preferences/./${token}/`,
-                'https://app.posthog.com',
+                'the link under a site path',
+                `https://host.example.com/posthog/messaging-preferences/${token}/?one_click_unsubscribe=1`,
+                'https://host.example.com/posthog/messaging-preferences/*/?one_click_unsubscribe=1',
             ],
             [
-                'a link with the token in its query',
-                `https://app.posthog.com/messaging-preferences/*/?token=${token}`,
-                'https://app.posthog.com',
-            ],
-            [
-                'a link with encoded characters in the token',
+                'the link with encoded characters in the token',
                 `https://app.posthog.com/messaging-preferences/${token.replace('.', '%2E').replace('J', '%4A')}/`,
-                'https://app.posthog.com',
+                redactedLink,
             ],
             [
-                'a link inside two redirects',
+                'the link inside two redirects',
                 `https://track.example.com/r?to=${encodeURIComponent(`https://other.example.com/r?to=${encodeURIComponent(preferencesLink)}`)}`,
-                'https://track.example.com',
+                `https://track.example.com/r?to=https://other.example.com/r?to=${redactedLink}`,
             ],
-        ])('records only the origin of %s', async (_name, link, recorded) => {
+            ...[
+                'https://example.com/messaging-preferences/weekly?locale=en',
+                'https://example.com/docs/messaging-preferences/v1.2.3/',
+                'https://example.com/docs/messaging-preferences/eyJrelease.v2.pdf/',
+            ].map((link) => [`a customer link ${link}`, link, link]),
+        ])('records %s without the token', async (_name, link, recorded) => {
             const body = [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }]
             const result = await handler.handleWebhook({ body, headers: {} })
             expect(result.metrics?.[0].properties?.$link_url).toBe(recorded)
-        })
-
-        it.each([
-            'https://example.com/messaging-preferences/weekly?locale=fran%C3%A7ais',
-            'https://example.com/docs/messaging-preferences/eyJrelease.v2.pdf/',
-            `https://example.com/portal/messaging-preferences/${otherJwt}/`,
-        ])('records the whole customer link %s', async (link) => {
-            const body = [{ eventType: 'Click', mail: baseMail, click: { link, timestamp: '2025-10-03T12:02:00Z' } }]
-            const result = await handler.handleWebhook({ body, headers: {} })
-            expect(result.metrics?.[0].properties?.$link_url).toBe(link)
         })
     })
 
