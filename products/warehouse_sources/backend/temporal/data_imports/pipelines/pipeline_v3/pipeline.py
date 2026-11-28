@@ -14,7 +14,6 @@ import posthoganalytics
 from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.activity_context import current_workflow_id, current_workflow_run_id
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
@@ -121,6 +120,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.producer import (
     PostgresProducer,
     SyncTypeLiteral,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    queue_url_for_run,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import (
     BatchWriteResult,
@@ -495,7 +497,7 @@ class PipelineV3(Generic[ResumableData]):
         self, s3_batch_writer: S3BatchWriter, *, resource_name: str, cdc_write_mode: str | None
     ) -> dict[str, Any]:
         return {
-            "database_url": WAREHOUSE_SOURCES_DATABASE_URL,
+            "database_url": queue_url_for_run(s3_batch_writer.get_run_uuid(), self._resumed_incremental_run_uuid),
             "team_id": self._job.team_id,
             "job_id": str(self._job.id),
             "schema_id": str(self._schema.id),

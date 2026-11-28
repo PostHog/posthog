@@ -181,6 +181,50 @@ For ad-hoc inspection (state summaries, active runs, leases, force-release), use
   Rows for today in a DEFAULT partition need no action, because retention deletes them.
 - **Poll duration vs lease TTL**: leases are claimed when the poll query starts, so a poll slower than half the 300s TTL hands groups over mostly expired; the consumer logs `poll_duration_approaching_lease_ttl` when this starts happening.
 
+## Migrating to another queue
+
+The batch queue can move to another queue with no downtime: the loaders never stop, and no batch is lost or loaded twice.
+`.agents/skills/migrating-warehouse-sources-queue/SKILL.md` has the rollout steps.
+This section describes the mechanism.
+
+### What a queue is
+
+A queue is whatever one connection URL reaches.
+The SQL names its tables without a schema, so two kinds of move look the same to the code:
+
+- **Another database.** The new URL names another host or database that has the same migrations.
+- **Other tables in the same database.** The new URL logs in as a role whose `search_path` names another Postgres schema (`ALTER ROLE ... SET search_path`), and the migrations create the tables there. Set the path on the role, not with a session `SET`, because a transaction pooler does not keep session state.
+
+The new table set must keep the table and column names that `core/jobs_db.py` reads.
+It can differ in everything else: partitioning, indexes, storage settings, the Postgres version.
+
+### Two settings
+
+- `WAREHOUSE_SOURCES_DATABASE_URL` is the active queue. New runs insert here.
+- `WAREHOUSE_SOURCES_DRAINING_DATABASE_URL` is set only during a migration. It is the old queue, which takes no new runs and is consumed until it is empty.
+
+With the second setting empty there is one queue, and none of the code below runs.
+
+### Rules during a migration
+
+- **A run stays on one queue.** The claim gates and the completion checks read one run from one queue. A producer inserts into the draining queue only when that queue already holds batches of its run, or of the run it resumes (`queue_url_for_run`). Every other run inserts into the active queue.
+- **One loader consumes one queue.** `run_warehouse_sources_load --queue active` (the default) and `--queue draining` run as separate deployments. The engine is the same for both.
+- **The draining queue's lease table decides who owns a group.** A draining loader holds a group's lease there because it claimed there. An active loader claims in the active queue, then takes the same group's lease in the draining queue (`DrainingQueueLeases` in `core/queue_migration.py`). It renews both leases on its heartbeat and checks both before a commit. So one `(team_id, schema_id)` group never loads from both queues at once. Only the active side takes two leases, so two loaders cannot each hold one lease and wait for the other.
+- **The draining queue loads first.** An active loader leaves a group alone while the draining queue has a batch of that group to load. It releases both leases at once, and a later claim offers the group again.
+- **Job-level code visits both queues.** The supersede at the start of a run, the lock takeover, sync teardown, the finalize sweep, the CDC backpressure check and the continued-job check read or write every queue (`all_queue_urls`), because a job can have attempts on both sides.
+
+A loader that still has the old configuration during the rollout consumes the old queue and knows nothing of the new one.
+That is safe, because it still holds its leases in the old queue, which is where the active loaders look.
+A loader that runs a build without this code is not safe once the URLs are flipped: it consumes the new queue and takes no lease in the old one.
+So this build must be live on every loader before the flip.
+
+### Limits
+
+- The active loaders fail closed. While the draining queue is unreachable they claim nothing, and a producer that cannot read it fails its attempt and retries. To abandon an old queue that is gone, unset the draining URL.
+- The partition workflow, the scheduler state and the generic job tables follow the active queue only. The draining queue keeps the partitions it has, which cover the next 7 days, so finish the drain in that time.
+- Both deployments export the same `warehouse_pg_*` metric names. The queue-wide gauges are aggregated with `max()`, so during a migration they show the worse of the two queues.
+- `manage_warehouse_queue --queue draining <action>` acts on the old queue. `manage_warehouse_queue migration-status` shows how much work each queue holds.
+
 ## Generic jobs (phase 1)
 
 `queuejob` / `queuejobstatus` / `queuejoblease` carry heterogeneous work items on the same physics as the batch tables: denormalized state on the row, an append-only status log written in the same statement, and lease-based group ownership. Two additions over the batch layer:

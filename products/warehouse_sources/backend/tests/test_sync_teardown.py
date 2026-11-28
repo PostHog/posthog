@@ -7,6 +7,7 @@ from uuid import uuid4
 import pytest
 from unittest.mock import patch
 
+from django.test import override_settings
 from django.utils import timezone
 
 import psycopg
@@ -328,7 +329,7 @@ def queue_conn() -> Generator[psycopg.Connection[Any]]:
     with psycopg.connect(url, autocommit=True) as conn:
         _ensure_tables(conn)
         _truncate_tables(conn)
-        with patch("products.warehouse_sources.backend.sync_teardown.WAREHOUSE_SOURCES_DATABASE_URL", url):
+        with override_settings(WAREHOUSE_SOURCES_DATABASE_URL=url):
             yield conn
 
 

@@ -24,6 +24,11 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     ReplaceScopeRef,
     SyncTypeLiteral,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    all_queue_urls,
+    draining_queue_url,
+    queue_connection,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.s3 import BatchWriteResult
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import (
     PartitionFormat,
@@ -140,6 +145,7 @@ class PostgresProducer:
         self._replace_scope: ReplaceScopeRef | None = None
         self._continued_job_ids: list[str] = list(continued_job_ids or [])
 
+        self._database_url = database_url
         with _queue_db_errors():
             self._conn = _connect_with_retry(database_url)
         self._batches_sent = 0
@@ -307,17 +313,28 @@ class PostgresProducer:
         #
         # A run with a replace scope is the same: its batch 0 deletes the rows of every
         # file it reads again, which covers every file an older attempt of the run read.
+        spare_runs_with_progress = (
+            self._sync_type != "full_refresh"
+            and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
+            and self._replace_scope is None
+        )
         with _queue_db_errors():
             superseded = BatchQueue.supersede_other_runs(
                 self._conn,
                 job_id=self._job_id,
                 current_run_uuid=self._run_uuid,
-                spare_runs_with_progress=(
-                    self._sync_type != "full_refresh"
-                    and not (self._sync_type == "append" and settings.DATA_WAREHOUSE_APPEND_ROLLBACK_ENABLED)
-                    and self._replace_scope is None
-                ),
+                spare_runs_with_progress=spare_runs_with_progress,
             )
+            # During a queue migration an older attempt of this job can sit in the other queue.
+            other_queue_urls = [queue_url for queue_url in all_queue_urls() if queue_url != self._database_url]
+            for queue_url in other_queue_urls if draining_queue_url() is not None else []:
+                with queue_connection(queue_url) as conn:
+                    superseded += BatchQueue.supersede_other_runs(
+                        conn,
+                        job_id=self._job_id,
+                        current_run_uuid=self._run_uuid,
+                        spare_runs_with_progress=spare_runs_with_progress,
+                    )
         if superseded > 0:
             self._logger.info("superseded_old_run_batches", count=superseded)
 

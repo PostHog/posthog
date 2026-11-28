@@ -18,16 +18,19 @@ from django.core.management.base import BaseCommand, CommandError, CommandParser
 import psycopg
 import structlog
 
-from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
-
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.sync_teardown import teardown_run
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.queues import (
+    active_queue_url,
+    draining_queue_url,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.sync_lock import (
     get_v3_pipeline_lock_holder,
     release_v3_pipeline_lock,
 )
+from products.warehouse_sources_queue.backend.core.queue_migration import get_drain_status
 from products.warehouse_sources_queue.backend.sdk import (
     PARTITION_PRUNING_INTERVAL,
     RECOVERY_GRACE_SECONDS,
@@ -83,7 +86,21 @@ class Command(BaseCommand):
     )
 
     def add_arguments(self, parser: CommandParser) -> None:
+        parser.add_argument(
+            "--queue",
+            choices=["active", "draining"],
+            default="active",
+            help=(
+                "Which queue to act on. 'draining' is the old queue of a queue migration "
+                "(WAREHOUSE_SOURCES_DRAINING_DATABASE_URL). Default: active"
+            ),
+        )
         subparsers = parser.add_subparsers(dest="action", required=True)
+
+        subparsers.add_parser(
+            "migration-status",
+            help="During a queue migration, show how much work each queue still holds (read-only)",
+        )
 
         status = subparsers.add_parser("status", help="Show queue state (read-only)")
         self._add_target_args(status)
@@ -214,7 +231,18 @@ class Command(BaseCommand):
         if action == "cancel":
             action = "fail-run"
 
-        with psycopg.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True) as conn:
+        if action == "migration-status":
+            self._handle_migration_status()
+            return
+
+        queue_url = active_queue_url()
+        if options.get("queue") == "draining":
+            draining = draining_queue_url()
+            if draining is None:
+                raise CommandError("--queue draining needs WAREHOUSE_SOURCES_DRAINING_DATABASE_URL")
+            queue_url = draining
+
+        with psycopg.connect(queue_url, autocommit=True) as conn:
             if action == "status":
                 self._handle_status(conn, options, queue=BatchQueue)
             elif action == "fail-run":
@@ -223,6 +251,27 @@ class Command(BaseCommand):
                 self._handle_check_mismatches(conn, options, queue=BatchQueue)
             elif action == "release-locks":
                 self._handle_release_locks(conn, options, queue=BatchQueue)
+
+    def _handle_migration_status(self) -> None:
+        draining = draining_queue_url()
+        if draining is None:
+            self.stdout.write("No queue migration is running: WAREHOUSE_SOURCES_DRAINING_DATABASE_URL is not set.")
+            return
+        for name, queue_url in (("draining", draining), ("active", active_queue_url())):
+            with psycopg.connect(queue_url, autocommit=True) as conn:
+                status = get_drain_status(conn)
+            last_insert = (
+                "never" if status.seconds_since_last_insert is None else f"{status.seconds_since_last_insert:.0f}s ago"
+            )
+            self.stdout.write(
+                f"{name}: live_batches={status.live_batches} open_runs={status.open_runs} last_insert={last_insert}"
+            )
+            if name == "draining":
+                self.stdout.write(
+                    "draining queue is empty: the migration can finish"
+                    if status.drained
+                    else "draining queue still holds work: keep its loaders running"
+                )
 
     # -- targeting --------------------------------------------------------------
 

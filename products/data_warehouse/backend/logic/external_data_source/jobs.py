@@ -253,19 +253,20 @@ def _sweep_v3_queue_batches(*, job_id: str, status: ExternalDataJobStatus, logge
     # so a top-level import would cycle.
     import psycopg
 
-    from posthog.settings import WAREHOUSE_SOURCES_DATABASE_URL
+    from products.warehouse_sources.backend.facade.pipelines import BatchQueue, all_queue_urls
 
-    from products.warehouse_sources.backend.facade.pipelines import BatchQueue
-
-    conn = psycopg.Connection.connect(WAREHOUSE_SOURCES_DATABASE_URL, autocommit=True)
-    try:
-        swept = BatchQueue.fail_batches_for_job_sync(
-            conn,
-            job_id=job_id,
-            reason=f"job finalized as {status} before its queue drained",
-        )
-    finally:
-        conn.close()
+    swept = 0
+    # During a queue migration the job's batches can be in either queue.
+    for queue_url in all_queue_urls():
+        conn = psycopg.Connection.connect(queue_url, autocommit=True)
+        try:
+            swept += BatchQueue.fail_batches_for_job_sync(
+                conn,
+                job_id=job_id,
+                reason=f"job finalized as {status} before its queue drained",
+            )
+        finally:
+            conn.close()
 
     if swept:
         FINALIZE_QUEUE_BATCHES_SWEPT.inc(swept)
