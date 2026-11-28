@@ -118,6 +118,20 @@ describe('LemonCalendarSelect', () => {
         await clickOnTime({ unit: 'h', value: 8 })
         // only changes the hour
         expect(onChange).toHaveBeenCalledWith(dayjs('2023-01-15T08:42:00.000Z'))
+
+        await clickOnTime({ unit: 'h', value: 12 })
+        // 12 in the morning is midnight, not noon
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-15T00:42:00.000Z'))
+
+        await clickOnTime({ unit: 'a', value: 'pm' })
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-15T12:42:00.000Z'))
+
+        await clickOnTime({ unit: 'h', value: 3 })
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-15T15:42:00.000Z'))
+
+        await clickOnTime({ unit: 'h', value: 12 })
+        // 12 in the afternoon stays noon
+        expect(onChange).toHaveBeenLastCalledWith(dayjs('2023-01-15T12:42:00.000Z'))
     })
 
     test('only allow upcoming selection', async () => {
