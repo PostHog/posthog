@@ -441,6 +441,7 @@ class TestScoutMessageRoutesConfigAPI(_MessagesFixture, APIBaseTest):
         config.refresh_from_db()
         assert config.max_messages_per_day == expected_stored
         if expected_status == status.HTTP_200_OK:
+            assert expected_stored is not None
             assert response.json()["message_cap"] == min(expected_stored, 10)
 
     def test_an_upsert_with_an_empty_list_clears_the_stored_routes(self) -> None:
