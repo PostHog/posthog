@@ -193,8 +193,8 @@ MIDDLEWARE = [
     # Outside the same middleware, so hog gets its notices on every answer, an early refusal included.
     "posthog.cli_notices.CliNoticeMiddleware",
     "posthog.gzip_middleware.ScopedGZipMiddleware",
-    # Must precede per_request_logging_context_middleware, the only client-IP reader that runs on
-    # the request path. AllowIPMiddleware and axes read the IP at or after the view.
+    # Must precede per_request_logging_context_middleware and AllowIPMiddleware, which read the
+    # client IP on the request path. Axes reads it at or after the view.
     "posthog.middleware.ManagedProxyClientIPMiddleware",
     "posthog.middleware.per_request_logging_context_middleware",
     "django_structlog.middlewares.RequestMiddleware",

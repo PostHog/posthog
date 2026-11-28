@@ -142,6 +142,7 @@ describe('api-error', () => {
             // Handled by something else, so reporting them only buries real crashes.
             ['a 401 the session check logs the user out of', { status: 401 }, false],
             ['an access-denied 403', { status: 403, code: 'permission_denied' }, false],
+            ['a region-blocked 403', { status: 403, code: 'region_blocked' }, false],
             ['a 2FA setup gate', { status: 403, code: 'two_factor_setup_required' }, false],
             ['a 2FA verification gate', { status: 403, code: 'two_factor_verification_required' }, false],
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
