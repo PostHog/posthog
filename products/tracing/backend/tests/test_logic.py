@@ -8,7 +8,7 @@ from parameterized import parameterized
 
 from posthog.schema import PropertyOperator, SpanPropertyFilter, SpanPropertyFilterType
 
-from products.tracing.backend.logic import translate_span_filter
+from products.tracing.backend.logic import translate_span_filter, with_span_attribute_type_suffix
 
 PROMPTS_DIR = Path(__file__).parents[2] / "mcp" / "prompts"
 
@@ -95,3 +95,28 @@ class TestTranslateSpanFilter(SimpleTestCase):
         translate_span_filter(span_filter)
         translate_span_filter(span_filter)
         self.assertEqual(span_filter.value, expected)
+
+
+class TestWithSpanAttributeTypeSuffix(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A JSON number on the str map must compare as text: a numeric constant against the
+            # String map value fails in ClickHouse with NO_COMMON_TYPE.
+            ("int", PropertyOperator.EXACT, 400, "http.status_code__str", "400"),
+            ("integral_float", PropertyOperator.EXACT, 400.0, "http.status_code__str", "400"),
+            ("fractional_float", PropertyOperator.EXACT, 1.5, "http.status_code__str", "1.5"),
+            ("list", PropertyOperator.EXACT, [400, 404.0], "http.status_code__str", ["400", "404"]),
+            ("bool_untouched", PropertyOperator.EXACT, True, "http.status_code__str", True),
+            ("numeric_operator_keeps_number", PropertyOperator.GT, 400, "http.status_code__float", 400),
+        ]
+    )
+    def test_routes_key_and_value_to_map_type(self, _name, operator, value, expected_key, expected_value):
+        prop = with_span_attribute_type_suffix(
+            SpanPropertyFilter(
+                key="http.status_code",
+                operator=operator,
+                type=SpanPropertyFilterType.SPAN_ATTRIBUTE,
+                value=value,
+            )
+        )
+        self.assertEqual((prop.key, prop.value), (expected_key, expected_value))
