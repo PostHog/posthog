@@ -53,10 +53,10 @@ describe('framesToCsv', () => {
             csv: ['path', `"'=SUM(1,\n1)"`],
         },
         {
-            name: 'quotes a tab in pasted text, so it cannot start a cell of its own',
-            frames: [{ fields: [{ name: 'path', type: 'string', values: ['safe\t=1+1'] }] }],
+            name: 'flattens a tab or line break in pasted text, so it cannot start a cell of its own',
+            frames: [{ fields: [{ name: 'path', type: 'string', values: ['safe\t=1+1', 'safe\n=1+1'] }] }],
             delimiter: '\t',
-            csv: ['path', '"safe\t=1+1"'],
+            csv: ['path', 'safe =1+1', 'safe =1+1'],
         },
         {
             name: 'joins a date and a full timestamp for the same instant into one row',
