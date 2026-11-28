@@ -25,7 +25,7 @@ function openThePage({ flagsRequest, page, sdkFlag }: Visit): void {
     } else {
         window.POSTHOG_FEATURE_FLAGS_LOADED = true
     }
-    featureFlagLogic.actions.setFeatureFlags([], { [FLAG]: sdkFlag })
+    featureFlagLogic.actions.setFeatureFlags(sdkFlag ? [FLAG] : [], sdkFlag ? { [FLAG]: true } : {})
 }
 
 describe('AdventEntry', () => {

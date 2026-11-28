@@ -41,13 +41,17 @@ async function runPendingWork(): Promise<void> {
     await act(() => jest.runAllTimersAsync())
 }
 
+function sdkLoadsTheFlag(on: boolean): void {
+    featureFlagLogic.actions.setFeatureFlags(on ? [FLAG] : [], on ? { [FLAG]: true } : {})
+}
+
 function openInABlockedBrowser(page: boolean, sdkFlag: boolean): void {
     window.POSTHOG_USER_IDENTITY_WITH_FLAGS = { distinctID: 'person-1', featureFlags: { [FLAG]: page } }
     window.POSTHOG_GLOBAL_ERRORS = { onFeatureFlagsLoadError: true }
     jest.mocked(posthog.get_property).mockImplementation((key) =>
         key === '$feature_flag_errors' ? ['connection_error'] : undefined
     )
-    featureFlagLogic.actions.setFeatureFlags([], { [FLAG]: sdkFlag })
+    sdkLoadsTheFlag(sdkFlag)
 }
 
 function snowFalls(): boolean {
@@ -61,7 +65,7 @@ describe('the advent tree on the Messaging sidebar header', () => {
         jest.useFakeTimers()
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([], { [FLAG]: true })
+        sdkLoadsTheFlag(true)
         captured = []
         jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
             captured.push([event, properties])
@@ -103,7 +107,7 @@ describe('the advent tree on the Messaging sidebar header', () => {
         ['another category', ProductItemCategory.ANALYTICS, true],
         ['Messaging with the flag off', ProductItemCategory.MESSAGING, false],
     ])('shows no tree on %s', async (_, category, flagOn) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FLAG]: flagOn })
+        sdkLoadsTheFlag(flagOn)
 
         for (const nav of NAVS) {
             renderMessagingHeader(nav, category)
